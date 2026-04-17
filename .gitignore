@@ -1,0 +1,26 @@
+# 配置文件（包含敏感API密钥）
+config.json
+
+# Python
+__pycache__/
+.venv/
+*.pyc
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 日志
+*.log
+
+# 临时文件
+*.tmp
+*.temp

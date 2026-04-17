@@ -1,0 +1,35 @@
+{
+  "_comment": "DreamHub配置文件",
+  "version": "1.0.0",
+  "volcano": {
+    "ark_api_key": "火山方舟API key",
+    "tos_ak": "火山引擎对象存储ak",
+    "tos_sk": "火山引擎对象存储sk",
+    "tos_region": "火山引擎对象存储区域",
+    "tos_bucket": "火山引擎对象存储桶名称",
+    "ai_mediakit_api": "火山引擎AI Mediakit API key"
+  },
+  "models": {
+    "text_default": "doubao-seed-2-0-pro-260215",
+    "text_models": {
+      "Doubao Seed 2.0 Pro": "doubao-seed-2-0-pro-260215",
+      "Doubao Seed 2.0 Lite": "doubao-seed-2-0-lite-260215"
+    },
+    "image_default": "doubao-seedream-5-0-260128",
+    "image_models": {
+      "Seedream 4.0": "doubao-seedream-4-0-250828",
+      "Seedream 4.5": "doubao-seedream-4-5-251128",
+      "Seedream 5.0 Lite": "doubao-seedream-5-0-260128"
+    },
+    "video_default": "doubao-seedance-2-0-260128",
+    "video_models": {
+      "Seedance 2.0": "doubao-seedance-2-0-260128",
+      "Seedance 2.0 Fast": "doubao-seedance-2-0-fast-260128"
+    }
+  },
+  "workspace": {
+    "path": "工作空间绝对路径"
+  },
+  "_security_notice": "⚠️ 重要提示：此文件包含敏感信息，请勿分享给他人或上传到公共仓库",
+  "_api_documentation": "📖 获取API密钥和创建接入点：https://console.volcengine.com/ark"
+}
