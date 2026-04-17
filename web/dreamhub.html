@@ -213,11 +213,13 @@
     <div id="modal-container"></div>
 
     <!-- Background Task Bar -->
-    <div id="bg-task-bar" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-white shadow-xl rounded-xl px-5 py-3 flex items-center space-x-3 border border-purple-200 transition-all duration-300" style="display:none">
-        <div class="spinner" style="width:20px;height:20px;border-width:2px;flex-shrink:0"></div>
-        <span id="bg-task-text" class="text-sm text-gray-700">1 个任务进行中</span>
-        <div id="bg-task-details" class="flex items-center space-x-2 text-xs text-gray-500"></div>
-        <button onclick="showPage('video')" class="text-purple-600 text-sm font-medium hover:underline">查看</button>
+    <div id="bg-task-bar" class="fixed right-4 bottom-4 z-50 bg-white shadow-xl rounded-xl px-5 py-3 border border-purple-200 transition-all duration-300" style="display:none">
+        <div class="flex items-center space-x-3">
+            <div class="spinner" style="width:20px;height:20px;border-width:2px;flex-shrink:0"></div>
+            <span id="bg-task-text" class="text-sm text-gray-700">1 个任务进行中</span>
+            <button onclick="showPage('video')" class="text-purple-600 text-sm font-medium hover:underline">查看</button>
+        </div>
+        <div id="bg-task-details" class="flex flex-col space-y-1 mt-2 text-xs text-gray-500"></div>
     </div>
 
     <script>
@@ -1189,9 +1191,13 @@
         window._framePickIdx = 0;
 
         // ========== Background Task Manager ==========
-        const BG_TASK_LIMIT = 3;
+        const BG_TASK_LIMIT = 10;
         window._bgTasks = [];
-        window._videoTaskHistory = []; // { id, type, filename, prompt, status, statusText, url, startTime, subdir }
+        window._videoTaskHistory = JSON.parse(localStorage.getItem('_videoTaskHistory') || '[]').filter(t => t.status === 'running');
+
+        function _saveTaskHistory() {
+            localStorage.setItem('_videoTaskHistory', JSON.stringify(window._videoTaskHistory));
+        }
 
         function addVideoTaskToHistory(task) {
             window._videoTaskHistory.unshift({
@@ -1205,6 +1211,7 @@
                 startTime: task.startTime,
                 subdir: task.subdir
             });
+            _saveTaskHistory();
             renderVideoTaskList();
         }
 
@@ -1215,6 +1222,7 @@
                 entry.url = url;
                 entry.statusText = null;
             }
+            _saveTaskHistory();
             renderVideoTaskList();
         }
 
@@ -1224,12 +1232,16 @@
                 entry.status = 'failed';
                 entry.statusText = errorMsg;
             }
+            _saveTaskHistory();
             renderVideoTaskList();
         }
 
         function updateVideoTaskStatus(taskId, statusText) {
             const entry = window._videoTaskHistory.find(t => t.id === taskId);
-            if (entry) entry.statusText = statusText;
+            if (entry) {
+                entry.statusText = statusText;
+                _saveTaskHistory();
+            }
         }
 
         function renderVideoTaskList() {
@@ -1324,10 +1336,10 @@
                 if (details) {
                     details.innerHTML = window._bgTasks.map(t => {
                         const icon = t.type === 'enhance' ? '✨' : '🎬';
-                        return `<span class="bg-purple-50 text-purple-700 px-2 py-0.5 rounded-full whitespace-nowrap">${icon} ${_bgTaskLabel(t)} <span class="text-gray-400">${_bgTaskElapsed(t)}</span></span>`;
+                        return `<div class="flex items-center space-x-1.5 whitespace-nowrap"><span>${icon}</span><span class="text-gray-700">${_bgTaskLabel(t)}</span><span class="text-gray-400">${_bgTaskElapsed(t)}</span></div>`;
                     }).join('');
                 }
-                bar.style.display = 'flex';
+                bar.style.display = 'block';
             } else {
                 bar.style.display = 'none';
             }
@@ -1342,7 +1354,7 @@
                         const span = details.children[i];
                         if (span) {
                             const icon = t.type === 'enhance' ? '✨' : '🎬';
-                            span.innerHTML = `${icon} ${_bgTaskLabel(t)} <span class="text-gray-400">${_bgTaskElapsed(t)}</span>`;
+                            span.innerHTML = `<span>${icon}</span><span class="text-gray-700">${_bgTaskLabel(t)}</span><span class="text-gray-400">${_bgTaskElapsed(t)}</span>`;
                         }
                     });
                 }
@@ -3999,7 +4011,7 @@
         async function handleWorkspaceUpload(input) {
             const files = input.files;
             if (!files || files.length === 0) return;
-            const subdir = (state.browsePath || []).join('/');
+            const fullSubdir = (state.browsePath || []).join('/');
             const project = state.currentProject;
             if (!project) { showToast('请先选择项目', 'warning'); return; }
 
@@ -4007,7 +4019,7 @@
                 const formData = new FormData();
                 formData.append('file', file);
                 formData.append('project', project);
-                formData.append('subdir', subdir);
+                formData.append('subdir', fullSubdir);
                 try {
                     const resp = await fetch('/api/workspace/upload', { method: 'POST', body: formData });
                     if (!resp.ok) throw new Error('upload failed');
@@ -4017,7 +4029,7 @@
             }
             showToast('uploaded ' + files.length + ' files', 'success');
             input.value = '';
-            renderWorkspace();
+            browseWorkspace(fullSubdir || project);
         }
 
         function showNewFolderDialog() {
@@ -4643,6 +4655,27 @@
 
             updateApiStatus();
             showPage('home');
+
+            // Resume polling for any running video tasks from previous session
+            window._videoTaskHistory.filter(t => t.status === 'running').forEach(t => {
+                const pollUrl = t.type === 'enhance'
+                    ? '/api/video/enhance/status?task_id=' + t.id
+                    : '/api/video/status?task_id=' + t.id;
+                const bgTask = {
+                    id: t.id,
+                    type: t.type,
+                    subdir: t.subdir,
+                    filename: t.filename,
+                    prompt: t.prompt,
+                    pollUrl: pollUrl,
+                    initialStatus: '',
+                    initialData: {},
+                    startTime: t.startTime,
+                    statusText: t.statusText || '恢复轮询中...'
+                };
+                addBgTask(bgTask);
+                pollAndSave(bgTask);
+            });
         }
 
         // Start the app

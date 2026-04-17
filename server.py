@@ -933,7 +933,7 @@ class DreamHubHandler(BaseHTTPRequestHandler):
 
         filename = os.path.basename(file_info["filename"]).replace("..", "")
         subdir = subdir.replace("..", "").strip("/")
-        rel = os.path.join(project, subdir) if subdir else project
+        rel = subdir if subdir else project
 
         ws_path = get_workspace_path()
         save_dir = os.path.join(ws_path, rel)

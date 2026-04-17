@@ -1,5 +1,7 @@
 # 配置文件（包含敏感API密钥）
 config.json
+zz_config.json
+config_zz.json
 
 # Python
 __pycache__/
