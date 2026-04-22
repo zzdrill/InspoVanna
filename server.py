@@ -35,15 +35,26 @@ except ImportError:
 # ---- Configuration ----
 PORT = 8765
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 TOS_UPLOAD_PREFIX = "temp/aigc"
 PRESIGN_EXPIRES = 7200  # 2 hours
+
+# Resolve config path: --config xxx.json or default config.json
+_config_arg = None
+for i, arg in enumerate(sys.argv[1:]):
+    if arg == "--config" and i + 1 < len(sys.argv[1:]):
+        _config_arg = sys.argv[i + 2]
+        break
+    if arg.startswith("--config="):
+        _config_arg = arg.split("=", 1)[1]
+        break
+CONFIG_PATH = os.path.join(BASE_DIR, _config_arg) if _config_arg else os.path.join(BASE_DIR, "config.json")
 
 
 def load_config():
     if not os.path.exists(CONFIG_PATH):
-        print(f"[ERROR] config.json not found at {CONFIG_PATH}")
+        print(f"[ERROR] Config file not found: {CONFIG_PATH}")
         sys.exit(1)
+    print(f"[INFO] Loading config: {CONFIG_PATH}")
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -156,12 +167,23 @@ def get_presigned_url(key):
 # ---- ARK Content Generation API helpers ----
 ARK_API_KEY = _config.get("volcano", {}).get("ark_api_key", "")
 ARK_BASE = "https://ark.cn-beijing.volces.com/api/v3"
+try:
+    ARK_API_KEY.encode("ascii")
+except UnicodeEncodeError:
+    print(f"[ERROR] ark_api_key contains non-ASCII characters. Please set a valid API key in {CONFIG_PATH}")
+    ARK_API_KEY = ""
 
 # ---- AMK (AI MediaKit) credentials ----
 AMK_API_KEY = _config.get("volcano", {}).get("ai_mediakit_api", "")
 
 
 def _ark_headers():
+    if not ARK_API_KEY:
+        raise ValueError("ARK API Key not configured")
+    try:
+        ARK_API_KEY.encode("ascii")
+    except UnicodeEncodeError:
+        raise ValueError(f"ARK API Key in {CONFIG_PATH} contains invalid characters. Please set a valid API key.")
     return {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {ARK_API_KEY}",
@@ -287,6 +309,11 @@ class DreamHubHandler(BaseHTTPRequestHandler):
                 self._send_json(_config)
             except Exception as e:
                 self._send_error_json(f"Failed to read config: {str(e)}", 500)
+            return
+
+        # API: update config from frontend import
+        if path == "/api/config" and method == "POST":
+            self._handle_config_import()
             return
 
         # API: return workspace path
@@ -419,7 +446,9 @@ class DreamHubHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
 
-        if path == "/api/tos/upload":
+        if path == "/api/config":
+            self._handle_config_import()
+        elif path == "/api/tos/upload":
             self._handle_tos_upload()
         elif path == "/api/tos/presign":
             self._handle_tos_presign()
@@ -580,6 +609,36 @@ class DreamHubHandler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache")
             self.end_headers()
             self.wfile.write(data)
+
+    def _handle_config_import(self):
+        """Import a full config JSON from frontend and reload runtime credentials."""
+        global _config, ARK_API_KEY, TOS_AK, TOS_SK, AMK_API_KEY
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length) if length > 0 else b""
+
+        try:
+            new_config = json.loads(body)
+        except (json.JSONDecodeError, TypeError):
+            self._send_error_json("Invalid JSON")
+            return
+
+        if not new_config.get("volcano"):
+            self._send_error_json("Invalid config format: missing 'volcano' section")
+            return
+
+        # Save to file
+        _config = new_config
+        save_config(_config)
+
+        # Reload runtime credentials
+        _tos_conf = _config.get("volcano", {})
+        ARK_API_KEY = _tos_conf.get("ark_api_key", "")
+        TOS_AK = _tos_conf.get("tos_ak", "")
+        TOS_SK = _tos_conf.get("tos_sk", "")
+        AMK_API_KEY = _tos_conf.get("ai_mediakit_api", "")
+
+        print(f"[OK] Config imported and saved to {CONFIG_PATH}")
+        self._send_json({"status": "ok"})
 
     def _handle_workspace_set_config(self):
         """Set workspace path and update config.json."""
@@ -1101,7 +1160,8 @@ class DreamHubHandler(BaseHTTPRequestHandler):
             return tos_url
 
         # Upload images to TOS and add image_url entries
-        for img in images:
+        failed_images = []
+        for i, img in enumerate(images):
             url = img.get("url", "")
             role = img.get("role", "reference_image")
             if not url:
@@ -1110,7 +1170,8 @@ class DreamHubHandler(BaseHTTPRequestHandler):
             try:
                 url = _upload_ref_url(url, "image/png")
             except Exception as e:
-                print(f"[WARN] Failed to upload image ref: {e}")
+                print(f"[WARN] Failed to upload image ref [{i}]: {e}")
+                failed_images.append({"index": i, "name": url[:60], "error": str(e)})
                 continue
 
             content.append({
@@ -1120,7 +1181,8 @@ class DreamHubHandler(BaseHTTPRequestHandler):
             })
 
         # Upload videos to TOS and add video_url entries
-        for vid in videos:
+        failed_videos = []
+        for i, vid in enumerate(videos):
             url = vid.get("url", "")
             role = vid.get("role", "reference_video")
             if not url:
@@ -1129,7 +1191,8 @@ class DreamHubHandler(BaseHTTPRequestHandler):
             try:
                 url = _upload_ref_url(url, "video/mp4")
             except Exception as e:
-                print(f"[WARN] Failed to upload video ref: {e}")
+                print(f"[WARN] Failed to upload video ref [{i}]: {e}")
+                failed_videos.append({"index": i, "name": url[:60], "error": str(e)})
                 continue
 
             content.append({
@@ -1139,7 +1202,8 @@ class DreamHubHandler(BaseHTTPRequestHandler):
             })
 
         # Upload audios to TOS and add audio_url entries
-        for aud in audios:
+        failed_audios = []
+        for i, aud in enumerate(audios):
             url = aud.get("url", "")
             role = aud.get("role", "reference_audio")
             if not url:
@@ -1148,7 +1212,8 @@ class DreamHubHandler(BaseHTTPRequestHandler):
             try:
                 url = _upload_ref_url(url, "audio/mpeg")
             except Exception as e:
-                print(f"[WARN] Failed to upload audio ref: {e}")
+                print(f"[WARN] Failed to upload audio ref [{i}]: {e}")
+                failed_audios.append({"index": i, "name": url[:60], "error": str(e)})
                 continue
 
             content.append({
@@ -1160,6 +1225,7 @@ class DreamHubHandler(BaseHTTPRequestHandler):
         try:
             result = ark_video_create(model, content, ratio, duration, watermark=watermark, tools=tools, generate_audio=generate_audio)
             print(f"[OK] Video task created: id={result.get('id')}, status={result.get('status')}")
+            result["failed"] = {"images": failed_images, "videos": failed_videos, "audio": failed_audios}
             self._send_json(result)
         except urllib.error.HTTPError as e:
             error_body = e.read().decode("utf-8", errors="replace")

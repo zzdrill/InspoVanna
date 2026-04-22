@@ -488,7 +488,7 @@
             if (!icon) return;
             const svg = icon.querySelector('svg');
             const tooltip = document.getElementById('video-audio-tooltip');
-            const hasRefAudio = !!window._videoRefAudio;
+            const hasRefAudio = (window._videoRefAudios || []).length > 0;
             // When reference audio is uploaded, force on and disable toggle
             if (hasRefAudio) {
                 state.generateAudio = true;
@@ -510,7 +510,7 @@
         }
 
         function toggleVideoAudioMode() {
-            if (window._videoRefAudio) return; // locked when ref audio exists
+            if ((window._videoRefAudios || []).length > 0) return;
             state.generateAudio = !state.generateAudio;
             updateVideoAudioIcon();
         }
@@ -617,6 +617,10 @@
 
         // ========== Page Rendering ==========
         function showPage(pageName) {
+            // Save textarea values before re-render
+            const vp = document.getElementById('video-prompt');
+            if (vp) state._videoPromptDraft = vp.value;
+
             state.currentPage = pageName;
 
             // Update nav buttons
@@ -894,6 +898,30 @@
             }).catch(() => {});
         }
 
+        function _elephantShowContributors() {
+            const bubble = document.getElementById('elephant-bubble');
+            const titleEl = document.getElementById('elephant-bubble-title');
+            const textEl = document.getElementById('elephant-bubble-text');
+            if (!bubble || !titleEl || !textEl) return;
+
+            fetch('/api/contributors').then(r => r.json()).then(data => {
+                const list = data.contributors || [];
+                if (list.length === 0) {
+                    titleEl.textContent = 'Contributor';
+                    textEl.innerHTML = '暂无贡献者';
+                } else {
+                    titleEl.textContent = 'Contributor';
+                    textEl.innerHTML = '<div class="flex flex-wrap gap-3 mt-1">' +
+                        list.map(c => '<div class="text-center"><img src="' + c.url + '" class="w-12 h-12 rounded-full object-cover mx-auto" onerror="this.style.display=\'none\'"><p class="text-xs text-gray-500 mt-1 max-w-[5em] truncate">' + c.name + '</p></div>').join('') +
+                        '</div>';
+                }
+                bubble.style.opacity = '1';
+                bubble.style.transform = 'translateX(0)';
+                if (window._bubbleTimeout) clearTimeout(window._bubbleTimeout);
+                window._bubbleTimeout = setTimeout(() => { _hideBubble(bubble); }, 8000);
+            }).catch(() => {});
+        }
+
         function _hideBubble(bubble) {
             if (!bubble) return;
             bubble.style.opacity = '0';
@@ -1011,27 +1039,27 @@
                                 <!-- Reference Audio -->
                                 <div>
                                     <div class="flex items-center space-x-2 mb-2">
-                                        <label class="block text-sm font-medium text-gray-700">参考音频（可选）</label>
+                                        <label class="block text-sm font-medium text-gray-700">参考音频（可选，最多3个）</label>
                                         <button onclick="pickVideoRefAudioFromWorkspace()" class="text-blue-500 hover:text-blue-600 transition-colors" title="从工作空间选择音频">
                                             <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/></svg>
                                         </button>
                                     </div>
-                                    <input type="file" id="video-audio-input" class="hidden" accept="audio/*" onchange="handleVideoAudioUpload(this)">
-                                    <div class="border-2 border-dashed border-gray-300 rounded-lg p-3 text-center hover:border-purple-500 transition-colors cursor-pointer" onclick="document.getElementById('video-audio-input').click()">
+                                    <input type="file" id="video-audio-input" class="hidden" accept="audio/*" multiple onchange="handleVideoAudioUpload(this)">
+                                    ${(window._videoRefAudios || []).length >= 3 ? '' : `<div class="border-2 border-dashed border-gray-300 rounded-lg p-3 text-center hover:border-purple-500 transition-colors cursor-pointer" onclick="document.getElementById('video-audio-input').click()">
                                         <p class="text-sm text-gray-600">点击上传参考音频</p>
-                                    </div>
-                                    ${window._videoRefAudio ? `
-                                        <div class="mt-2 flex items-center space-x-2 bg-gray-50 rounded-lg p-2">
-                                            <button onclick="toggleVideoRefAudioPlay()" id="audio-play-btn" class="flex-shrink-0 w-8 h-8 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center hover:bg-purple-200 transition-colors">
-                                                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                    </div>`}
+                                    <div class="flex flex-wrap gap-2 mt-2">
+                                    ${(window._videoRefAudios || []).map((a, i) => `
+                                        <div class="flex items-center space-x-1.5 bg-gray-50 rounded-lg px-2 py-1.5">
+                                            <button onclick="toggleVideoRefAudioPlay(${i})" id="audio-play-btn-${i}" class="flex-shrink-0 w-6 h-6 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center hover:bg-purple-200 transition-colors">
+                                                <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
                                             </button>
-                                            <div class="flex-1 min-w-0">
-                                                <p class="text-sm text-gray-700 truncate">${window._videoRefAudio.name || '音频'}</p>
-                                            </div>
-                                            <button onclick="removeVideoRefAudio()" class="flex-shrink-0 w-6 h-6 bg-red-500 text-white rounded-full text-xs hover:bg-red-600 flex items-center justify-center">&times;</button>
-                                            <audio id="ref-audio-elem" src="${window._videoRefAudio.preview}" preload="metadata" class="hidden"></audio>
+                                            <p class="text-xs text-gray-700 max-w-[8em] truncate">${a.name || '音频'}</p>
+                                            <button onclick="removeVideoRefAudio(${i})" class="flex-shrink-0 w-5 h-5 bg-red-500 text-white rounded-full hover:bg-red-600 flex items-center justify-center" style="font-size:10px">&times;</button>
+                                            <audio id="ref-audio-elem-${i}" src="${a.preview}" preload="metadata" class="hidden"></audio>
                                         </div>
-                                    ` : ''}
+                                    `).join('')}
+                                    </div>
                                 </div>
 
                                 <!-- Prompt -->
@@ -1048,7 +1076,7 @@
                                             </svg>
                                         </button>
                                     </div>
-                                    <textarea id="video-prompt" rows="4" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="描述您想要生成的视频内容..."></textarea>
+                                    <textarea id="video-prompt" rows="4" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="描述您想要生成的视频内容...">${state._videoPromptDraft || ''}</textarea>
                                 </div>
 
                                 <!-- Parameters Row: Model + Icons + Resolution + Aspect Ratio -->
@@ -1078,7 +1106,7 @@
                                             <circle cx="18" cy="16" r="3"></circle>
                                         </svg>
                                         <div id="video-audio-tooltip" class="hidden absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-gray-800 text-white text-xs rounded-lg whitespace-nowrap z-50 pointer-events-none">
-                                            ${window._videoRefAudio ? '已上传参考音频，音频生成已锁定开启' : '点击切换是否生成音频'}
+                                            ${(window._videoRefAudios || []).length > 0 ? '已上传参考音频，音频生成已锁定开启' : '点击切换是否生成音频'}
                                         </div>
                                     </span>
                                     <div>
@@ -1185,7 +1213,7 @@
         // Video reference state
         window._videoRefImages = [];
         window._videoRefVideos = [];
-        window._videoRefAudio = window._videoRefAudio || null;
+        window._videoRefAudios = window._videoRefAudios || [];
         window._videoFrameMode = false;
 
         window._framePickIdx = 0;
@@ -1212,6 +1240,7 @@
                 subdir: task.subdir
             });
             _saveTaskHistory();
+            _saveTaskHistory();
             renderVideoTaskList();
         }
 
@@ -1223,6 +1252,7 @@
                 entry.statusText = null;
             }
             _saveTaskHistory();
+            _saveTaskHistory();
             renderVideoTaskList();
         }
 
@@ -1232,6 +1262,7 @@
                 entry.status = 'failed';
                 entry.statusText = errorMsg;
             }
+            _saveTaskHistory();
             _saveTaskHistory();
             renderVideoTaskList();
         }
@@ -1359,6 +1390,7 @@
                     });
                 }
                 if (state.currentPage === 'video') renderVideoTaskList();
+                if (state.currentPage === 'video') renderVideoTaskList();
             }
         }, 1000);
 
@@ -1410,25 +1442,34 @@
         }
 
         function handleVideoAudioUpload(input) {
-            const file = input.files && input.files[0];
-            if (!file) return;
-            const preview = URL.createObjectURL(file);
-            window._videoRefAudio = { preview, file, name: file.name };
+            const files = input.files;
+            if (!files || files.length === 0) return;
+            if (!window._videoRefAudios) window._videoRefAudios = [];
+            for (const file of files) {
+                if (window._videoRefAudios.length >= 3) break;
+                const preview = URL.createObjectURL(file);
+                window._videoRefAudios.push({ preview, file, name: file.name });
+            }
             input.value = '';
             showPage('video');
         }
 
         function pickVideoRefAudioFromWorkspace() {
+            if (!window._videoRefAudios) window._videoRefAudios = [];
+            if (window._videoRefAudios.length >= 3) {
+                showToast('最多上传3个参考音频', 'warning');
+                return;
+            }
             showWorkspaceFilePicker('Audio', (file) => {
-                window._videoRefAudio = { preview: file.url, name: file.name, file: null };
+                window._videoRefAudios.push({ preview: file.url, name: file.name, file: null });
                 showPage('video');
                 showToast('已选择音频：' + file.name, 'success');
             });
         }
 
-        function toggleVideoRefAudioPlay() {
-            const audio = document.getElementById('ref-audio-elem');
-            const btn = document.getElementById('audio-play-btn');
+        function toggleVideoRefAudioPlay(idx) {
+            const audio = document.getElementById('ref-audio-elem-' + idx);
+            const btn = document.getElementById('audio-play-btn-' + idx);
             if (!audio || !btn) return;
             if (audio.paused) {
                 audio.play();
@@ -1444,7 +1485,7 @@
         }
 
         function removeVideoRefAudio() {
-            window._videoRefAudio = null;
+            window._videoRefAudios = [];
             showPage('video');
         }
 
@@ -1706,7 +1747,7 @@
                 if (task.type === 'generate') {
                     window._videoRefImages = [];
                     window._videoRefVideos = [];
-                    window._videoRefAudio = null;
+                    window._videoRefAudios = [];
                 } else if (task.type === 'enhance') {
                     state._enhanceVideoUrl = null;
                     state._enhanceVideoName = '';
@@ -1730,6 +1771,15 @@
         async function generateVideo() {
             const prompt = document.getElementById('video-prompt')?.value;
             if (!prompt) { showToast('请输入描述', 'error'); return; }
+
+            // Audio-only reference is not allowed by ARK API
+            const hasRefAudio = (window._videoRefAudios || []).length > 0;
+            const hasRefImages = (window._videoRefImages || []).length > 0;
+            const hasRefVideos = (window._videoRefVideos || []).length > 0;
+            if (hasRefAudio && !hasRefImages && !hasRefVideos) {
+                showToast('参考音频不能单独使用，请同时上传参考图片或视频', 'warning', 5000);
+                return;
+            }
 
             if (!state.arkApiKey) {
                 showToast('请先配置火山方舟 API Key', 'error');
@@ -1783,14 +1833,14 @@
 
             // Build audio
             const audio = [];
-            if (window._videoRefAudio) {
-                let audioUrl = window._videoRefAudio.preview;
-                if (window._videoRefAudio.file) {
+            for (const refAudio of (window._videoRefAudios || [])) {
+                let audioUrl = refAudio.preview;
+                if (refAudio.file) {
                     audioUrl = await new Promise((resolve) => {
                         const reader = new FileReader();
                         reader.onload = (e) => resolve(e.target.result);
-                        reader.onerror = () => resolve(window._videoRefAudio.preview);
-                        reader.readAsDataURL(window._videoRefAudio.file);
+                        reader.onerror = () => resolve(refAudio.preview);
+                        reader.readAsDataURL(refAudio.file);
                     });
                 }
                 audio.push({ url: audioUrl, role: 'reference_audio' });
@@ -1852,7 +1902,7 @@
 
             } catch (err) {
                 console.error('Video generation error:', err);
-                failVideoPreview(err.message);
+                showToast('视频生成失败: ' + err.message, 'error', 5000);
             }
         }
 
@@ -4468,7 +4518,7 @@
             if (!file) return;
 
             const reader = new FileReader();
-            reader.onload = function(e) {
+            reader.onload = async function(e) {
                 try {
                     const config = JSON.parse(e.target.result);
 
@@ -4477,8 +4527,13 @@
                         return;
                     }
 
+                    try {
+                        await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) });
+                        showToast('配置文件已导入并生效', 'success', 5000);
+                    } catch (e) {
+                        showToast('前端已加载，后端同步失败', 'warning', 5000);
+                    }
                     showPage('settings');
-                    showToast('配置文件已成功导入，可以开始使用。', 'success', 5000);
                 } catch (error) {
                     showToast('无法解析配置文件，请确保文件格式正确', 'error');
                     console.error('Config import error:', error);
