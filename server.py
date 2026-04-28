@@ -279,6 +279,90 @@ def parse_multipart(body, boundary):
     return files
 
 
+def _update_prompts_json(prompts_path, prompts):
+    """Write prompts dict to prompts.json."""
+    try:
+        if prompts:
+            with open(prompts_path, "w", encoding="utf-8") as f:
+                json.dump(prompts, f, ensure_ascii=False, indent=2)
+        else:
+            os.remove(prompts_path)
+    except Exception:
+        pass
+
+
+def _update_prompts_on_rename(full_old, full_new):
+    """Update prompts.json key when a file is renamed."""
+    folder = os.path.dirname(full_old)
+    prompts_path = os.path.join(folder, "prompts.json")
+    if not os.path.isfile(prompts_path):
+        return
+    try:
+        with open(prompts_path, "r", encoding="utf-8") as f:
+            prompts = json.load(f)
+        old_name = os.path.basename(full_old)
+        new_name = os.path.basename(full_new)
+        if old_name in prompts:
+            prompts[new_name] = prompts.pop(old_name)
+            _update_prompts_json(prompts_path, prompts)
+    except Exception:
+        pass
+
+
+def _update_prompts_on_move(full_source, full_new):
+    """Move prompt entry from source folder's prompts.json to dest folder's."""
+    src_folder = os.path.dirname(full_source)
+    dst_folder = os.path.dirname(full_new)
+    filename = os.path.basename(full_source)
+    if src_folder == dst_folder:
+        return
+
+    # Remove from source
+    src_prompts_path = os.path.join(src_folder, "prompts.json")
+    prompt_value = None
+    if os.path.isfile(src_prompts_path):
+        try:
+            with open(src_prompts_path, "r", encoding="utf-8") as f:
+                prompts = json.load(f)
+            if filename in prompts:
+                prompt_value = prompts.pop(filename)
+                _update_prompts_json(src_prompts_path, prompts)
+        except Exception:
+            pass
+
+    # Add to destination
+    if prompt_value is not None:
+        dst_prompts_path = os.path.join(dst_folder, "prompts.json")
+        dst_prompts = {}
+        if os.path.isfile(dst_prompts_path):
+            try:
+                with open(dst_prompts_path, "r", encoding="utf-8") as f:
+                    dst_prompts = json.load(f)
+            except Exception:
+                pass
+        dst_prompts[filename] = prompt_value
+        _update_prompts_json(dst_prompts_path, dst_prompts)
+
+
+def _update_prompts_on_delete(full_path):
+    """Remove prompt entry when a file is deleted."""
+    if os.path.isdir(full_path):
+        return
+    folder = os.path.dirname(full_path)
+    prompts_path = os.path.join(folder, "prompts.json")
+    if not os.path.isfile(prompts_path):
+        return
+    try:
+        with open(prompts_path, "r", encoding="utf-8") as f:
+            prompts = json.load(f)
+        filename = os.path.basename(full_path)
+        if filename in prompts:
+            del prompts[filename]
+            _update_prompts_json(prompts_path, prompts)
+    except Exception:
+        pass
+
+
 # ---- HTTP Handler ----
 class DreamHubHandler(BaseHTTPRequestHandler):
     """Serves static files and handles TOS API requests."""
@@ -386,6 +470,11 @@ class DreamHubHandler(BaseHTTPRequestHandler):
             self._handle_workspace_read(parsed.query)
             return
 
+        # API: get prompt for a workspace file
+        if path == "/api/workspace/prompt":
+            self._handle_workspace_get_prompt(parsed.query)
+            return
+
         # API: poll video generation task status
         if path == "/api/video/status":
             self._handle_video_status(parsed.query)
@@ -470,6 +559,8 @@ class DreamHubHandler(BaseHTTPRequestHandler):
             self._handle_workspace_save_text()
         elif path == "/api/workspace/upload":
             self._handle_workspace_upload()
+        elif path == "/api/workspace/save-prompt":
+            self._handle_workspace_save_prompt()
         elif path == "/api/video/generate":
             self._handle_video_generate()
         elif path == "/api/ark/file-upload":
@@ -508,6 +599,8 @@ class DreamHubHandler(BaseHTTPRequestHandler):
         files = []
         try:
             for name in sorted(os.listdir(target)):
+                if name == "prompts.json":
+                    continue
                 full = os.path.join(target, name)
                 if os.path.isdir(full):
                     folders.append({"name": name})
@@ -768,6 +861,7 @@ class DreamHubHandler(BaseHTTPRequestHandler):
 
         try:
             os.rename(full_old, full_new)
+            _update_prompts_on_rename(full_old, full_new)
             print(f"[OK] Renamed: {full_old} -> {full_new}")
             self._send_json({"path": full_new})
         except Exception as e:
@@ -816,6 +910,7 @@ class DreamHubHandler(BaseHTTPRequestHandler):
 
         try:
             os.rename(full_source, full_new)
+            _update_prompts_on_move(full_source, full_new)
             print(f"[OK] Moved: {full_source} -> {full_new}")
             self._send_json({"path": full_new})
         except Exception as e:
@@ -853,6 +948,7 @@ class DreamHubHandler(BaseHTTPRequestHandler):
                 shutil.rmtree(full_path)
             else:
                 os.remove(full_path)
+                _update_prompts_on_delete(full_path)
             print(f"[OK] Deleted: {full_path}")
             self._send_json({"deleted": rel_path})
         except Exception as e:
@@ -1005,6 +1101,79 @@ class DreamHubHandler(BaseHTTPRequestHandler):
         serve_url = f"/workspace/{rel}/{filename}".replace("\\", "/")
         print(f"[OK] Uploaded to workspace: {full_path}")
         self._send_json({"localPath": full_path, "serveUrl": serve_url})
+
+    def _handle_workspace_save_prompt(self):
+        """Save a prompt for a workspace file into per-folder prompts.json."""
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length) if length > 0 else b""
+
+        try:
+            data = json.loads(body)
+        except (json.JSONDecodeError, TypeError):
+            self._send_error_json("Invalid JSON")
+            return
+
+        subdir = data.get("subdir", "").replace("..", "").strip("/")
+        filename = os.path.basename(data.get("filename", "")).replace("..", "")
+        prompt = data.get("prompt", "")
+
+        if not subdir or not filename:
+            self._send_error_json("Missing subdir or filename")
+            return
+
+        ws_path = get_workspace_path()
+        folder_path = os.path.normpath(os.path.join(ws_path, subdir))
+        if not folder_path.startswith(ws_path):
+            self._send_error_json("Forbidden", 403)
+            return
+
+        prompts_path = os.path.join(folder_path, "prompts.json")
+
+        try:
+            prompts = {}
+            if os.path.isfile(prompts_path):
+                with open(prompts_path, "r", encoding="utf-8") as f:
+                    prompts = json.load(f)
+
+            prompts[filename] = prompt
+
+            with open(prompts_path, "w", encoding="utf-8") as f:
+                json.dump(prompts, f, ensure_ascii=False, indent=2)
+
+            self._send_json({"status": "ok"})
+        except Exception as e:
+            self._send_error_json(f"Failed to save prompt: {str(e)}", 500)
+
+    def _handle_workspace_get_prompt(self, query_string):
+        """Return the prompt for a workspace file from per-folder prompts.json."""
+        from urllib.parse import parse_qs, unquote as unq
+        params = parse_qs(query_string)
+        rel_path = unq(params.get("path", [""])[0].strip("/"))
+
+        if ".." in rel_path:
+            self._send_error_json("Forbidden", 403)
+            return
+
+        parts = rel_path.replace("\\", "/").split("/")
+        if len(parts) < 2:
+            self._send_json({"prompt": ""})
+            return
+
+        filename = parts[-1]
+        subdir = "/".join(parts[:-1])
+
+        ws_path = get_workspace_path()
+        prompts_path = os.path.normpath(os.path.join(ws_path, subdir, "prompts.json"))
+        if not prompts_path.startswith(ws_path) or not os.path.isfile(prompts_path):
+            self._send_json({"prompt": ""})
+            return
+
+        try:
+            with open(prompts_path, "r", encoding="utf-8") as f:
+                prompts = json.load(f)
+            self._send_json({"prompt": prompts.get(filename, "")})
+        except Exception:
+            self._send_json({"prompt": ""})
 
     def _handle_tos_upload(self):
         """Handle multipart file upload to TOS."""

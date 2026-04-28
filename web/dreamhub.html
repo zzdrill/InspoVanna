@@ -898,30 +898,6 @@
             }).catch(() => {});
         }
 
-        function _elephantShowContributors() {
-            const bubble = document.getElementById('elephant-bubble');
-            const titleEl = document.getElementById('elephant-bubble-title');
-            const textEl = document.getElementById('elephant-bubble-text');
-            if (!bubble || !titleEl || !textEl) return;
-
-            fetch('/api/contributors').then(r => r.json()).then(data => {
-                const list = data.contributors || [];
-                if (list.length === 0) {
-                    titleEl.textContent = 'Contributor';
-                    textEl.innerHTML = '暂无贡献者';
-                } else {
-                    titleEl.textContent = 'Contributor';
-                    textEl.innerHTML = '<div class="flex flex-wrap gap-3 mt-1">' +
-                        list.map(c => '<div class="text-center"><img src="' + c.url + '" class="w-12 h-12 rounded-full object-cover mx-auto" onerror="this.style.display=\'none\'"><p class="text-xs text-gray-500 mt-1 max-w-[5em] truncate">' + c.name + '</p></div>').join('') +
-                        '</div>';
-                }
-                bubble.style.opacity = '1';
-                bubble.style.transform = 'translateX(0)';
-                if (window._bubbleTimeout) clearTimeout(window._bubbleTimeout);
-                window._bubbleTimeout = setTimeout(() => { _hideBubble(bubble); }, 8000);
-            }).catch(() => {});
-        }
-
         function _hideBubble(bubble) {
             if (!bubble) return;
             bubble.style.opacity = '0';
@@ -1722,6 +1698,13 @@
                     if (saveResp.ok) {
                         const saveData = await saveResp.json();
                         serveUrl = saveData.serveUrl;
+                        if (task.prompt) {
+                            fetch('/api/workspace/save-prompt', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({subdir: task.subdir, filename: task.filename, prompt: task.prompt})
+                            }).catch(() => {});
+                        }
                     }
                 } catch (e) {
                     console.warn('Failed to save video to workspace:', e);
@@ -3114,6 +3097,11 @@
                             if (saveResp.ok) {
                                 const saveData = await saveResp.json();
                                 serveUrl = saveData.serveUrl;
+                                fetch('/api/workspace/save-prompt', {
+                                    method: 'POST',
+                                    headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify({subdir, filename, prompt})
+                                }).catch(() => {});
                             }
                         } catch (e) {
                             console.warn('Failed to save to workspace, using original URL:', e);
@@ -3684,9 +3672,52 @@
             showPage('workspace');
         }
 
+        function copyPrompt() {
+            if (window._currentPrompt) {
+                navigator.clipboard.writeText(window._currentPrompt).then(function() {
+                    showToast('已复制到剪贴板', 'success');
+                });
+            }
+        }
+
+        function fetchAndShowPrompt(url) {
+            if (!url || !url.startsWith('/workspace/')) return;
+            const promptPath = url.substring('/workspace/'.length);
+            fetch('/api/workspace/prompt?path=' + encodeURIComponent(promptPath))
+                .then(r => r.ok ? r.json() : {prompt: ''})
+                .then(data => {
+                    const el = document.getElementById('prompt-display');
+                    if (!el || !data.prompt) return;
+                    const escaped = data.prompt.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+                    window._currentPrompt = data.prompt;
+                    el.innerHTML = '<div class="bg-purple-50 rounded-lg p-3">' +
+                        '<div class="flex items-center justify-between mb-1"><span class="text-xs text-purple-500 font-medium">提示词</span>' +
+                        '<div class="flex gap-1">' +
+                        '<button onclick="copyPrompt()" class="text-xs px-2 py-0.5 bg-white border border-purple-200 text-purple-600 rounded hover:bg-purple-100">复制</button>' +
+                        '<button onclick="savePromptToText(window._currentPrompt)" class="text-xs px-2 py-0.5 bg-white border border-purple-200 text-purple-600 rounded hover:bg-purple-100">保存到工作空间</button>' +
+                        '</div></div>' +
+                        '<div class="text-sm text-gray-700 whitespace-pre-wrap">' + escaped + '</div></div>';
+                })
+                .catch(() => {});
+        }
+
+        function savePromptToText(prompt) {
+            const subdir = state.currentProject ? state.currentProject + '/Text' : 'Text';
+            const filename = 'prompt_' + new Date().toISOString().replace(/[:.]/g, '-') + '.txt';
+            fetch('/api/workspace/save-text', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({content: prompt, filename: filename, subdir: subdir})
+            })
+            .then(r => r.ok ? r.json() : Promise.reject())
+            .then(() => showToast('提示词已保存到工作空间', 'success'))
+            .catch(() => showToast('保存失败', 'error'));
+        }
+
         function previewWorkspaceFile(url, name, type) {
             const isImage = type && type.startsWith('image/');
             const isVideo = type && type.startsWith('video/');
+            const isText = type && (type.startsWith('text/') || name.endsWith('.txt') || name.endsWith('.md') || name.endsWith('.json') || name.endsWith('.log'));
             showModal(`
                 <div class="p-6 max-w-3xl">
                     <div class="flex items-center justify-between mb-4">
@@ -3697,17 +3728,42 @@
                             </svg>
                         </button>
                     </div>
+                    <div id="preview-content-area">
                     ${isImage ? `
                         <img src="${url}" alt="${name}" class="max-w-full max-h-[60vh] mx-auto rounded-lg mb-4">
                     ` : isVideo ? `
                         <video src="${url}" controls autoplay class="max-w-full max-h-[60vh] mx-auto rounded-lg mb-4"></video>
+                    ` : isText ? `
+                        <div id="text-preview" class="bg-gray-50 rounded-lg p-4 mb-4 max-h-[60vh] overflow-auto text-sm text-gray-700 whitespace-pre-wrap font-mono">加载中...</div>
                     ` : `
                         <div class="aspect-video bg-gray-100 rounded-lg flex items-center justify-center mb-4">
                             <p class="text-gray-500">无法预览此文件</p>
                         </div>
                     `}
+                    </div>
+                    <div id="prompt-display" class="mb-4"></div>
                 </div>
             `);
+
+            if (isText && url && url.startsWith('/workspace/')) {
+                const textPath = url.substring('/workspace/'.length);
+                fetch('/api/workspace/read?path=' + encodeURIComponent(textPath))
+                    .then(r => r.ok ? r.json() : null)
+                    .then(data => {
+                        const el = document.getElementById('text-preview');
+                        if (el && data && data.content !== undefined) {
+                            el.textContent = data.content;
+                        } else if (el) {
+                            el.textContent = '读取失败';
+                        }
+                    })
+                    .catch(() => {
+                        const el = document.getElementById('text-preview');
+                        if (el) el.textContent = '读取失败';
+                    });
+            }
+
+            fetchAndShowPrompt(url);
         }
 
         function formatFileSize(bytes) {
@@ -4231,6 +4287,7 @@
                         <div><strong>大小：</strong>${file.size || '未知'}</div>
                         <div><strong>创建时间：</strong>${formatDate(file.createdAt)}</div>
                     </div>
+                    <div id="prompt-display" class="mb-4"></div>
                     <div class="flex space-x-2">
                         <button onclick="deleteFile('${file.id}')" class="px-4 py-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors">
                             删除
@@ -4238,6 +4295,8 @@
                     </div>
                 </div>
             `);
+
+            fetchAndShowPrompt(file.url);
         }
 
         function showFileMenu(fileId) {
