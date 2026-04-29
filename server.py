@@ -37,6 +37,7 @@ PORT = 8765
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TOS_UPLOAD_PREFIX = "temp/aigc"
 PRESIGN_EXPIRES = 7200  # 2 hours
+TOS_CACHE_TTL = 7000   # slightly less than presign expiry
 
 # Resolve config path: --config xxx.json or default config.json
 _config_arg = None
@@ -131,7 +132,50 @@ else:
 
 
 # ---- TOS helpers ----
-def upload_to_tos(file_data, filename, content_type):
+import hashlib
+import time
+
+_tos_cache = {}  # {hash: {"key": str, "ct": str, "ts": float}}
+
+
+def _cache_key(file_data):
+    return hashlib.sha256(file_data).hexdigest()
+
+
+def upload_to_tos_cached(file_data, filename, content_type):
+    """Upload to TOS with caching. Returns presigned URL.
+    If the same file data was uploaded recently (within TOS_CACHE_TTL),
+    reuse the existing TOS key and generate a fresh presigned URL.
+    """
+    if not tos_client:
+        raise Exception("TOS not configured")
+
+    ck = _cache_key(file_data)
+    now = time.time()
+
+    # Check cache
+    if ck in _tos_cache:
+        entry = _tos_cache[ck]
+        if now - entry["ts"] < TOS_CACHE_TTL:
+            url = get_presigned_url(entry["key"])
+            print(f"[CACHE] Reusing TOS key: {entry['key']}")
+            return url
+
+    # Upload new
+    unique_id = uuid.uuid4().hex[:12]
+    key = f"{TOS_UPLOAD_PREFIX}/{unique_id}/{filename}"
+
+    tos_client.put_object(
+        bucket=TOS_BUCKET,
+        key=key,
+        content=io.BytesIO(file_data),
+        content_type=content_type,
+    )
+
+    url = get_presigned_url(key)
+    _tos_cache[ck] = {"key": key, "ct": content_type, "ts": now}
+    print(f"[OK] Uploaded ref to TOS: {key}")
+    return url
     """Upload file bytes to TOS and return (key, presigned_url)."""
     if not tos_client:
         raise Exception("TOS not configured")
@@ -598,12 +642,12 @@ class DreamHubHandler(BaseHTTPRequestHandler):
         folders = []
         files = []
         try:
-            for name in sorted(os.listdir(target)):
+            for name in os.listdir(target):
                 if name == "prompts.json":
                     continue
                 full = os.path.join(target, name)
                 if os.path.isdir(full):
-                    folders.append({"name": name})
+                    folders.append({"name": name, "modified": os.path.getmtime(full)})
                 elif os.path.isfile(full):
                     size = os.path.getsize(full)
                     ct, _ = mimetypes.guess_type(full)
@@ -615,6 +659,9 @@ class DreamHubHandler(BaseHTTPRequestHandler):
                     })
         except Exception:
             pass
+
+        folders.sort(key=lambda x: x.get("modified", 0), reverse=True)
+        files.sort(key=lambda x: x.get("modified", 0), reverse=True)
 
         self._send_json({"folders": folders, "files": files})
 
@@ -1324,9 +1371,7 @@ class DreamHubHandler(BaseHTTPRequestHandler):
                 return url  # already a public URL
             ext = ct.split("/")[-1] if "/" in ct else default_ct.split("/")[-1]
             filename = f"ref_{uuid.uuid4().hex[:8]}.{ext}"
-            key, tos_url = upload_to_tos(file_data, filename, ct)
-            print(f"[OK] Uploaded ref to TOS: {key}")
-            return tos_url
+            return upload_to_tos_cached(file_data, filename, ct)
 
         # Upload images to TOS and add image_url entries
         failed_images = []
@@ -1591,8 +1636,7 @@ class DreamHubHandler(BaseHTTPRequestHandler):
                     file_data = f.read()
                 ext = ct.split("/")[-1] if "/" in ct else "mp4"
                 filename = f"enhance_{uuid.uuid4().hex[:8]}.{ext}"
-                key, tos_url = upload_to_tos(file_data, filename, ct)
-                print(f"[OK] Uploaded enhance video to TOS: {key}")
+                tos_url = upload_to_tos_cached(file_data, filename, ct)
                 video_url = tos_url
             except Exception as e:
                 self._send_error_json(f"Upload to TOS failed: {str(e)}", 500)
@@ -1605,8 +1649,7 @@ class DreamHubHandler(BaseHTTPRequestHandler):
                 file_data = base64.b64decode(b64data)
                 ext = ct.split("/")[-1] if "/" in ct else "mp4"
                 filename = f"enhance_{uuid.uuid4().hex[:8]}.{ext}"
-                key, tos_url = upload_to_tos(file_data, filename, ct)
-                print(f"[OK] Uploaded enhance video (data) to TOS: {key}")
+                tos_url = upload_to_tos_cached(file_data, filename, ct)
                 video_url = tos_url
             except Exception as e:
                 self._send_error_json(f"Upload to TOS failed: {str(e)}", 500)

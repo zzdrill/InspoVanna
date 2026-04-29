@@ -32,6 +32,68 @@
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
         }
+        /* Mention tag in video prompt */
+        .mention-tag {
+            background: #f3f4f6;
+            color: #6b7280;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            user-select: all;
+            display: inline;
+        }
+        #video-prompt:empty:before {
+            content: attr(data-placeholder);
+            color: #9ca3af;
+            pointer-events: none;
+        }
+        #mention-popup {
+            position: absolute;
+            left: 0;
+            top: 100%;
+            z-index: 50;
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+            max-height: 280px;
+            overflow-y: auto;
+            min-width: 200px;
+            display: none;
+        }
+        #mention-popup .mention-section-title {
+            font-size: 11px;
+            color: #9ca3af;
+            padding: 6px 12px 2px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        #mention-popup .mention-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            cursor: pointer;
+            font-size: 13px;
+            color: #374151;
+        }
+        #mention-popup .mention-item:hover {
+            background: #f3f4f6;
+        }
+        #mention-popup .mention-thumb {
+            width: 32px;
+            height: 32px;
+            border-radius: 4px;
+            object-fit: cover;
+            flex-shrink: 0;
+        }
+        #mention-popup .mention-empty {
+            padding: 16px 12px;
+            text-align: center;
+            color: #9ca3af;
+            font-size: 13px;
+        }
+
 
         .fade-in { animation: fadeIn 0.3s ease-out; }
         .slide-in { animation: slideIn 0.3s ease-out; }
@@ -538,14 +600,19 @@
         // ========== Utility Functions ==========
         function showToast(message, type = 'info', duration = 3000) {
             const container = document.getElementById('toast-container');
+            // Remove any existing toast with the same type
+            const existing = container.querySelector(`.toast-${type}`);
+            if (existing) existing.remove();
             const toast = document.createElement('div');
             toast.className = `toast toast-${type}`;
             toast.textContent = message;
             container.appendChild(toast);
 
             setTimeout(() => {
-                toast.style.animation = 'fadeIn 0.3s ease-out reverse';
-                setTimeout(() => toast.remove(), 300);
+                if (toast.parentNode) {
+                    toast.style.animation = 'fadeIn 0.3s ease-out reverse';
+                    setTimeout(() => toast.remove(), 300);
+                }
             }, duration);
         }
 
@@ -619,7 +686,7 @@
         function showPage(pageName) {
             // Save textarea values before re-render
             const vp = document.getElementById('video-prompt');
-            if (vp) state._videoPromptDraft = vp.value;
+            if (vp) state._videoPromptDraft = vp.innerHTML;
 
             state.currentPage = pageName;
 
@@ -643,6 +710,8 @@
                     updateVideoAudioIcon();
                     // Restore video preview for active background tasks
                     restoreVideoPreviewForActiveTasks();
+                    // Bind mention popup events on contenteditable video-prompt
+                    bindMentionEvents();
                     break;
                 case 'image':
                     content.innerHTML = renderImagePage();
@@ -905,6 +974,20 @@
             if (window._bubbleTimeout) { clearTimeout(window._bubbleTimeout); window._bubbleTimeout = null; }
         }
 
+
+        // ========== Prompt Text Helpers (contenteditable) ==========
+        function getPromptText() {
+            const el = document.getElementById('video-prompt');
+            if (!el) return '';
+            // Get text content, treating mention tags as their text
+            return el.innerText || '';
+        }
+        function setPromptText(text) {
+            const el = document.getElementById('video-prompt');
+            if (!el) return;
+            el.innerText = text;
+        }
+
         // ========== Video Generation Page ==========
         function renderVideoPage() {
             const imgCount = (window._videoRefImages || []).length;
@@ -1042,6 +1125,10 @@
                                 <div>
                                     <div class="flex items-center space-x-2 mb-2">
                                         <label class="block text-sm font-medium text-gray-700">视频描述</label>
+                                        <span class="relative group">
+                                            <svg class="w-4 h-4 text-gray-400 cursor-help" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                                            <span class="absolute left-0 top-6 w-64 bg-gray-800 text-white text-xs rounded-lg p-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">输入 <code style="background:#4b5563;padding:0 3px;border-radius:2px">@</code> 可引用已上传的参考元素（图片、视频、音频），如需输入 @ 字符本身，请在前面加反斜杠<code style="background:#4b5563;padding:0 3px;border-radius:2px">&#92;</code>。</span>
+                                        </span>
                                         <button onclick="pickTextFromWorkspace('video-prompt')" class="text-blue-500 hover:text-blue-600 transition-colors" title="从工作空间选择文本">
                                             <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
@@ -1052,7 +1139,10 @@
                                             </svg>
                                         </button>
                                     </div>
-                                    <textarea id="video-prompt" rows="4" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="描述您想要生成的视频内容...">${state._videoPromptDraft || ''}</textarea>
+                                    <div class="relative">
+                                        <div id="video-prompt" contenteditable="true" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" style="min-height:6em;max-height:12em;overflow-y:auto;outline:none;white-space:pre-wrap;word-break:break-word" data-placeholder="描述您想要生成的视频内容...">${state._videoPromptDraft || ''}</div>
+                                        <div id="mention-popup"></div>
+                                    </div>
                                 </div>
 
                                 <!-- Parameters Row: Model + Icons + Resolution + Aspect Ratio -->
@@ -1197,6 +1287,8 @@
         // ========== Background Task Manager ==========
         const BG_TASK_LIMIT = 10;
         window._bgTasks = [];
+        window._batchMode = false;
+        window._batchSelected = [];
         window._videoTaskHistory = JSON.parse(localStorage.getItem('_videoTaskHistory') || '[]').filter(t => t.status === 'running');
 
         function _saveTaskHistory() {
@@ -1726,12 +1818,8 @@
                 // Mark completed in history and re-render
                 completeVideoTaskInHistory(task.id, serveUrl, task.subdir);
 
-                // Clean up type-specific state
-                if (task.type === 'generate') {
-                    window._videoRefImages = [];
-                    window._videoRefVideos = [];
-                    window._videoRefAudios = [];
-                } else if (task.type === 'enhance') {
+                // Clean up enhance-only state
+                if (task.type === 'enhance') {
                     state._enhanceVideoUrl = null;
                     state._enhanceVideoName = '';
                     state._enhanceVideoFile = null;
@@ -1751,8 +1839,136 @@
             }
         }
 
+        // ========== Mention (@) Popup ==========
+        window._mentionRange = null;
+
+        function bindMentionEvents() {
+            const el = document.getElementById('video-prompt');
+            if (!el || el.tagName === 'TEXTAREA') return;
+
+            el.addEventListener('input', function(e) {
+                if (window._videoFrameMode) return;
+                const sel = window.getSelection();
+                if (!sel.rangeCount) return;
+                const range = sel.getRangeAt(0);
+                const textNode = range.startContainer;
+                if (textNode.nodeType !== Node.TEXT_NODE) { hideMentionPopup(); return; }
+                const textBefore = textNode.textContent.substring(0, range.startOffset);
+                if (textBefore.endsWith('@') && (textBefore.length < 2 || textBefore[textBefore.length - 2] !== '\\')) {
+                    window._mentionRange = range.cloneRange();
+                    showMentionPopup();
+                } else {
+                    hideMentionPopup();
+                }
+            });
+
+            el.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') hideMentionPopup();
+            });
+
+            el.addEventListener('paste', function(e) {
+                e.preventDefault();
+                const text = e.clipboardData.getData('text/plain');
+                document.execCommand('insertText', false, text);
+            });
+
+            // Close popup on click outside
+            document.addEventListener('click', function(e) {
+                const popup = document.getElementById('mention-popup');
+                if (popup && popup.style.display === 'block' && !popup.contains(e.target) && e.target !== el) {
+                    hideMentionPopup();
+                }
+            });
+        }
+
+        function showMentionPopup() {
+            const popup = document.getElementById('mention-popup');
+            const el = document.getElementById('video-prompt');
+            if (!popup || !el) return;
+
+            const imgs = window._videoRefImages || [];
+            const vids = window._videoRefVideos || [];
+            const auds = window._videoRefAudios || [];
+
+            if (imgs.length === 0 && vids.length === 0 && auds.length === 0) {
+                popup.innerHTML = '<div class="mention-empty">暂无已上传的参考元素</div>';
+            } else {
+                let html = '';
+                if (imgs.length > 0) {
+                    html += '<div class="mention-section-title">图片</div>';
+                    imgs.forEach((img, i) => {
+                        html += `<div class="mention-item" onclick="insertMention('图片${i+1}')"><img src="${img.preview}" class="mention-thumb">图片${i+1}</div>`;
+                    });
+                }
+                if (vids.length > 0) {
+                    html += '<div class="mention-section-title">视频</div>';
+                    vids.forEach((vid, i) => {
+                        html += `<div class="mention-item" onclick="insertMention('视频${i+1}')"><video src="${vid.preview}" class="mention-thumb" muted preload="metadata"></video>视频${i+1}</div>`;
+                    });
+                }
+                if (auds.length > 0) {
+                    html += '<div class="mention-section-title">音频</div>';
+                    auds.forEach((aud, i) => {
+                        html += `<div class="mention-item" onclick="insertMention('音频${i+1}')"><span class="mention-thumb flex items-center justify-center bg-gray-100 text-gray-400 text-xs">♪</span><span class="truncate" style="max-width:10em">${aud.name || '音频' + (i+1)}</span>音频${i+1}</div>`;
+                    });
+                }
+                popup.innerHTML = html;
+            }
+            popup.style.display = 'block';
+        }
+
+        function hideMentionPopup() {
+            const popup = document.getElementById('mention-popup');
+            if (popup) popup.style.display = 'none';
+        }
+
+        function insertMention(label) {
+            const el = document.getElementById('video-prompt');
+            if (!el) return;
+
+            // Restore saved range (focus was lost when clicking popup item)
+            const sel = window.getSelection();
+            const savedRange = window._mentionRange;
+            if (!savedRange) return;
+
+            sel.removeAllRanges();
+            sel.addRange(savedRange);
+
+            // Delete the trailing '@' character
+            const range = sel.getRangeAt(0);
+            const textNode = range.startContainer;
+            if (textNode.nodeType === Node.TEXT_NODE) {
+                const offset = range.startOffset;
+                if (offset > 0 && textNode.textContent[offset - 1] === '@') {
+                    textNode.textContent = textNode.textContent.substring(0, offset - 1) + textNode.textContent.substring(offset);
+                    range.setStart(textNode, offset - 1);
+                    range.collapse(true);
+                }
+            }
+
+            // Insert mention tag span
+            const span = document.createElement('span');
+            span.className = 'mention-tag';
+            span.contentEditable = 'false';
+            span.textContent = label;
+
+            const space = document.createTextNode(' ');
+
+            range.deleteContents();
+            range.insertNode(space);
+            range.insertNode(span);
+            range.setStartAfter(space);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+
+            window._mentionRange = null;
+            hideMentionPopup();
+            el.focus();
+        }
+
         async function generateVideo() {
-            const prompt = document.getElementById('video-prompt')?.value;
+            const prompt = getPromptText();
             if (!prompt) { showToast('请输入描述', 'error'); return; }
 
             // Audio-only reference is not allowed by ARK API
@@ -1829,7 +2045,7 @@
                 audio.push({ url: audioUrl, role: 'reference_audio' });
             }
 
-            showToast('正在提交视频生成任务...', 'info');
+            showToast('正在提交视频生成任务...', 'info', 30000);
 
             try {
                 // Step 1: Create task via server
@@ -1863,6 +2079,10 @@
                 }
 
                 updateVideoPreviewStatus('任务已提交，等待视频生成...');
+                // Remove the submitting toast and show success
+                const submittingToast = document.querySelector('#toast-container .toast-info');
+                if (submittingToast) submittingToast.remove();
+                showToast('视频生成任务已提交', 'success');
 
                 const filename = `video_${new Date().toISOString().replace(/[:.]/g, '-')}.mp4`;
 
@@ -2415,6 +2635,15 @@
                                     <div class="flex items-center justify-between mb-4">
                                         <span class="text-sm text-gray-500">${browseData.folders.length} 个文件夹 · ${browseData.files.length} 个文件</span>
                                         <div class="flex items-center space-x-1">
+                                            <div id="batch-bar" class="hidden flex items-center space-x-1 mr-2">
+                                                <span id="batch-count" class="text-xs text-purple-600 font-medium">0 项</span>
+                                                <button onclick="batchDelete()" class="px-2 py-1 text-xs bg-red-50 text-red-600 rounded hover:bg-red-100">删除</button>
+                                                <button onclick="batchMoveDialog()" class="px-2 py-1 text-xs bg-blue-50 text-blue-600 rounded hover:bg-blue-100">移动</button>
+                                                <button onclick="toggleBatchMode()" class="px-2 py-1 text-xs text-gray-500 hover:text-gray-700">取消</button>
+                                            </div>
+                                            <button id="batch-toggle-btn" onclick="toggleBatchMode()" class="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors" title="批量操作">
+                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
+                                            </button>
                                             <input type="file" id="workspace-upload-input" multiple class="hidden" onchange="handleWorkspaceUpload(this)">
                                             <button onclick="document.getElementById('workspace-upload-input').click()" class="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors" title="上传文件">
                                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2474,11 +2703,15 @@
                                                 const isVideo = file.type && file.type.startsWith('video/');
                                                 const escapedFilePath = filePath.replace(/'/g, "\\'");
                                                 return `
-                                                    <div class="p-4 border border-gray-200 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition-all cursor-pointer group relative"
+                                                    <div class="p-4 border border-gray-200 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition-all cursor-pointer group relative batch-item"
+                                                         data-path="${filePath}"
                                                          draggable="true"
                                                          ondragstart="onDragStart(event,'${escapedFilePath}',false)"
                                                          ondragend="onDragEnd(event)"
-                                                         onclick="previewWorkspaceFile('${serveUrl}', '${file.name}', '${file.type}')">
+                                                         onclick="if(window._batchMode){toggleBatchSelect(this,'${escapedFilePath}')}else{previewWorkspaceFile('${serveUrl}', '${file.name}', '${file.type}')}">
+                                                        <div class="batch-checkbox hidden absolute top-2 left-2 z-20">
+                                                            <input type="checkbox" class="w-4 h-4 accent-purple-600 cursor-pointer" onclick="event.stopPropagation(); toggleBatchSelect(this.closest('.batch-item'),'${escapedFilePath}')">
+                                                        </div>
                                                         <div class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-1 z-10">
                                                             ${isVideo ? `<button onclick="event.stopPropagation(); extractVideoFrames('${escapedFilePath}')" class="p-1 bg-white rounded shadow hover:bg-blue-100" title="截取首尾帧">
                                                                 <svg class="w-3.5 h-3.5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
@@ -2967,7 +3200,10 @@
                     .then(data => {
                         if (data.error) throw new Error(data.error);
                         const textarea = document.getElementById(targetId);
-                        if (textarea) textarea.value = data.content;
+                        if (textarea) {
+                            if (textarea.tagName === 'TEXTAREA') textarea.value = data.content;
+                            else textarea.innerText = data.content;
+                        }
                         showToast(`已加载：${file.name}`, 'success');
                     })
                     .catch(err => showToast(`读取失败：${err.message}`, 'error'));
@@ -3650,6 +3886,221 @@
                 state.browseData = { folders: [], files: [] };
                 showPage('workspace');
             }
+        }
+
+        // ========== Batch Operations ==========
+        function toggleBatchMode() {
+            window._batchMode = !window._batchMode;
+            window._batchSelected = [];
+            updateBatchUI();
+        }
+
+        function updateBatchUI() {
+            const bar = document.getElementById('batch-bar');
+            const btn = document.getElementById('batch-toggle-btn');
+            if (!bar || !btn) return;
+
+            if (window._batchMode) {
+                bar.classList.remove('hidden');
+                bar.classList.add('flex');
+                btn.classList.add('hidden');
+                document.querySelectorAll('.batch-checkbox').forEach(cb => cb.classList.remove('hidden'));
+                document.querySelectorAll('.batch-item').forEach(item => {
+                    item.classList.remove('border-purple-500', 'bg-purple-50');
+                    item.querySelector('input[type=checkbox]').checked = false;
+                });
+            } else {
+                bar.classList.add('hidden');
+                bar.classList.remove('flex');
+                btn.classList.remove('hidden');
+                document.querySelectorAll('.batch-checkbox').forEach(cb => cb.classList.add('hidden'));
+                document.querySelectorAll('.batch-item').forEach(item => {
+                    item.classList.remove('border-purple-500', 'bg-purple-50');
+                    item.querySelector('input[type=checkbox]').checked = false;
+                });
+            }
+            updateBatchCount();
+        }
+
+        function toggleBatchSelect(itemEl, path) {
+            const cb = itemEl.querySelector('input[type=checkbox]');
+            const idx = window._batchSelected.indexOf(path);
+            if (idx >= 0) {
+                window._batchSelected.splice(idx, 1);
+                cb.checked = false;
+                itemEl.classList.remove('border-purple-500', 'bg-purple-50');
+            } else {
+                window._batchSelected.push(path);
+                cb.checked = true;
+                itemEl.classList.add('border-purple-500', 'bg-purple-50');
+            }
+            updateBatchCount();
+        }
+
+        function updateBatchCount() {
+            const el = document.getElementById('batch-count');
+            if (el) el.textContent = window._batchSelected.length + ' 项';
+        }
+
+        function batchDelete() {
+            if (window._batchSelected.length === 0) {
+                showToast('请先选择文件', 'warning');
+                return;
+            }
+            showModal(`
+                <div class="p-6">
+                    <h3 class="text-lg font-bold text-gray-900 mb-4">批量删除</h3>
+                    <p class="text-sm text-gray-600 mb-4">确定要删除选中的 ${window._batchSelected.length} 个文件吗？此操作不可撤销。</p>
+                    <div class="flex space-x-2 justify-end">
+                        <button onclick="closeModal()" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">取消</button>
+                        <button onclick="doBatchDelete()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">删除</button>
+                    </div>
+                </div>
+            `);
+        }
+
+        async function doBatchDelete() {
+            closeModal();
+            let ok = 0, fail = 0;
+            for (const path of window._batchSelected) {
+                try {
+                    const resp = await fetch('/api/workspace/delete', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({path: path})
+                    });
+                    if (resp.ok) ok++; else fail++;
+                } catch { fail++; }
+            }
+            window._batchSelected = [];
+            window._batchMode = false;
+            showToast(`已删除 ${ok} 个文件${fail > 0 ? '，' + fail + ' 个失败' : ''}`, fail > 0 ? 'warning' : 'success');
+            browseWorkspace((state.browsePath || []).join('/'));
+        }
+
+        function batchMoveDialog() {
+            if (window._batchSelected.length === 0) {
+                showToast('请先选择文件', 'warning');
+                return;
+            }
+            showFolderPicker('选择目标文件夹', (destDir) => {
+                doBatchMove(destDir);
+            });
+        }
+
+        async function doBatchMove(destDir) {
+            let ok = 0, fail = 0;
+            for (const source of window._batchSelected) {
+                try {
+                    const resp = await fetch('/api/workspace/move', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({source: source, destDir: destDir})
+                    });
+                    if (resp.ok) ok++; else fail++;
+                } catch { fail++; }
+            }
+            window._batchSelected = [];
+            window._batchMode = false;
+            showToast(`已移动 ${ok} 个文件${fail > 0 ? '，' + fail + ' 个失败' : ''}`, fail > 0 ? 'warning' : 'success');
+            browseWorkspace((state.browsePath || []).join('/'));
+        }
+
+        function showFolderPicker(title, callback) {
+            window._folderPickerCallback = callback;
+            window._folderPickerSelected = '';
+            showModal(`
+                <div class="p-6">
+                    <h3 class="text-lg font-bold text-gray-900 mb-4">${title}</h3>
+                    <div id="folder-picker-tree" class="max-h-64 overflow-y-auto border rounded-lg p-2 mb-4"></div>
+                    <div class="flex space-x-2 justify-end">
+                        <button onclick="closeModal()" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">取消</button>
+                        <button id="folder-picker-confirm" onclick="confirmFolderPick()" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 opacity-50 pointer-events-none">确定</button>
+                    </div>
+                </div>
+            `);
+            loadFolderPickerTree('');
+        }
+
+        function confirmFolderPick() {
+            if (window._folderPickerSelected && window._folderPickerCallback) {
+                window._folderPickerCallback(window._folderPickerSelected);
+            }
+            closeModal();
+        }
+
+        function updateFolderPickerConfirm() {
+            const btn = document.getElementById('folder-picker-confirm');
+            if (!btn) return;
+            if (window._folderPickerSelected) {
+                btn.classList.remove('opacity-50', 'pointer-events-none');
+            } else {
+                btn.classList.add('opacity-50', 'pointer-events-none');
+            }
+        }
+
+        function highlightFolderPickerItem(el) {
+            const tree = document.getElementById('folder-picker-tree');
+            if (!tree) return;
+            tree.querySelectorAll('.fp-selected').forEach(e => e.classList.remove('fp-selected', 'bg-purple-50', 'text-purple-700'));
+            el.classList.add('fp-selected', 'bg-purple-50', 'text-purple-700');
+        }
+
+        function loadFolderPickerTree(parentPath) {
+            const container = document.getElementById('folder-picker-tree');
+            if (!container) return;
+            fetch('/api/workspace/browse?path=' + encodeURIComponent(parentPath || '')).then(r => r.json()).then(data => {
+                const folders = data.folders || [];
+                const escaped = (parentPath || '').replace(/'/g, "\\'");
+                let html = '';
+                folders.forEach(f => {
+                    const subPath = parentPath ? parentPath + '/' + f.name : f.name;
+                    const subEscaped = subPath.replace(/'/g, "\\'");
+                    html += `<div class="fp-item p-2 hover:bg-gray-50 rounded cursor-pointer text-gray-700 flex items-center" data-path="${subPath}" onclick="selectFolderItem(this,'${subEscaped}')">
+                        <svg class="w-4 h-4 mr-2 text-yellow-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                        <span class="flex-1 truncate">${f.name}</span>
+                        <svg class="w-3 h-3 ml-1 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    </div>
+                    <div class="fp-children hidden pl-4" data-parent="${subPath}"></div>`;
+                });
+                container.innerHTML = html || '<p class="text-gray-400 text-sm p-2">暂无文件夹</p>';
+            });
+        }
+
+        function selectFolderItem(el, path) {
+            window._folderPickerSelected = path;
+            highlightFolderPickerItem(el);
+            updateFolderPickerConfirm();
+
+            // Toggle expand children
+            const childrenDiv = el.nextElementSibling;
+            if (!childrenDiv || !childrenDiv.classList.contains('fp-children')) return;
+            if (!childrenDiv.classList.contains('hidden')) {
+                childrenDiv.classList.add('hidden');
+                return;
+            }
+            // Load sub-folders
+            if (childrenDiv.innerHTML) {
+                childrenDiv.classList.remove('hidden');
+                return;
+            }
+            fetch('/api/workspace/browse?path=' + encodeURIComponent(path)).then(r => r.json()).then(data => {
+                const folders = data.folders || [];
+                if (folders.length === 0) return;
+                let html = '';
+                folders.forEach(f => {
+                    const subPath = path + '/' + f.name;
+                    const subEscaped = subPath.replace(/'/g, "\\'");
+                    html += `<div class="fp-item p-2 hover:bg-gray-50 rounded cursor-pointer text-gray-700 flex items-center" data-path="${subPath}" onclick="selectFolderItem(this,'${subEscaped}')">
+                        <svg class="w-4 h-4 mr-2 text-yellow-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                        <span class="flex-1 truncate">${f.name}</span>
+                        <svg class="w-3 h-3 ml-1 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    </div>
+                    <div class="fp-children hidden pl-4" data-parent="${subPath}"></div>`;
+                });
+                childrenDiv.innerHTML = html;
+                childrenDiv.classList.remove('hidden');
+            });
         }
 
         async function browseWorkspace(relPath) {
