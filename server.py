@@ -16,6 +16,7 @@ import sys
 import io
 import uuid
 import mimetypes
+import re
 import threading
 import webbrowser
 import urllib.request
@@ -241,6 +242,7 @@ def ark_video_create(model, content, ratio, duration, resolution="720p", waterma
         "content": content,
         "ratio": ratio,
         "duration": duration,
+        "resolution": resolution,
         "watermark": watermark,
     }
     if tools:
@@ -410,6 +412,7 @@ def _update_prompts_on_delete(full_path):
 # ---- HTTP Handler ----
 class DreamHubHandler(BaseHTTPRequestHandler):
     """Serves static files and handles TOS API requests."""
+    protocol_version = "HTTP/1.1"
 
     def log_message(self, format, *args):
         print(f"[HTTP] {args[0] if args else format}")
@@ -419,6 +422,7 @@ class DreamHubHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(body)
 
@@ -529,6 +533,11 @@ class DreamHubHandler(BaseHTTPRequestHandler):
             self._handle_video_enhance_status(parsed.query)
             return
 
+        # API: read storyboard data
+        if path == "/api/storyboard":
+            self._handle_storyboard_get(parsed.query)
+            return
+
         # Serve files from workspace directory
         if path.startswith("/workspace/"):
             self._serve_workspace_file(path)
@@ -564,6 +573,9 @@ class DreamHubHandler(BaseHTTPRequestHandler):
         ct, _ = mimetypes.guess_type(file_path)
         if ct is None:
             ct = "application/octet-stream"
+        # Ensure JS files have proper charset for ES module loading
+        if ct == "text/javascript" or ct == "application/javascript":
+            ct += "; charset=utf-8"
 
         with open(file_path, "rb") as f:
             data = f.read()
@@ -571,6 +583,7 @@ class DreamHubHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", ct)
         self.send_header("Content-Length", str(len(data)))
+        self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(data)
 
@@ -613,6 +626,12 @@ class DreamHubHandler(BaseHTTPRequestHandler):
             self._handle_extract_frames()
         elif path == "/api/video/enhance":
             self._handle_video_enhance()
+        elif path == "/api/storyboard/save":
+            self._handle_storyboard_save()
+        elif path == "/api/storyboard/sync-folders":
+            self._handle_storyboard_sync_folders()
+        elif path == "/api/script/analyze":
+            self._handle_script_analyze()
         else:
             self._send_error_json("Not found", 404)
 
@@ -1324,6 +1343,7 @@ class DreamHubHandler(BaseHTTPRequestHandler):
         prompt = data.get("prompt", "")
         ratio = data.get("ratio", "16:9")
         duration = data.get("duration", 5)
+        resolution = data.get("resolution", "720p")
         watermark = data.get("watermark", True)
         images = data.get("images", [])
         videos = data.get("videos", [])
@@ -1437,7 +1457,7 @@ class DreamHubHandler(BaseHTTPRequestHandler):
             })
 
         try:
-            result = ark_video_create(model, content, ratio, duration, watermark=watermark, tools=tools, generate_audio=generate_audio)
+            result = ark_video_create(model, content, ratio, duration, resolution=resolution, watermark=watermark, tools=tools, generate_audio=generate_audio)
             print(f"[OK] Video task created: id={result.get('id')}, status={result.get('status')}")
             result["failed"] = {"images": failed_images, "videos": failed_videos, "audio": failed_audios}
             self._send_json(result)
@@ -1800,6 +1820,268 @@ class DreamHubHandler(BaseHTTPRequestHandler):
             import traceback
             traceback.print_exc()
             self._send_error_json(f"截取帧失败: {str(e)}", 500)
+
+    # ---- Storyboard API ----
+    _EMPTY_STORYBOARD = {
+        "version": "1.0.0",
+        "updatedAt": "",
+        "episodes": {},
+        "flow": {"nodes": [], "edges": []},
+        "scenes": {},
+    }
+
+    def _handle_storyboard_get(self, query_string):
+        """GET /api/storyboard?project=<name> — read storyboard.json."""
+        qs = parse_qs(query_string)
+        project = qs.get("project", [""])[0]
+        if not project or ".." in project:
+            self._send_error_json("Missing or invalid project name")
+            return
+
+        ws = get_workspace_path()
+        sb_path = os.path.normpath(os.path.join(ws, project, "Storyboard", "storyboard.json"))
+        if not sb_path.startswith(ws):
+            self._send_error_json("Forbidden", 403)
+            return
+
+        if not os.path.isfile(sb_path):
+            self._send_json(self._EMPTY_STORYBOARD)
+            return
+
+        try:
+            with open(sb_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            self._send_json(data)
+        except Exception as e:
+            self._send_error_json(f"Failed to read storyboard: {str(e)}", 500)
+
+    def _handle_storyboard_save(self):
+        """POST /api/storyboard/save — save full storyboard JSON."""
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length) if length > 0 else b""
+
+        try:
+            data = json.loads(body)
+        except (json.JSONDecodeError, TypeError):
+            self._send_error_json("Invalid JSON")
+            return
+
+        project = data.get("project", "")
+        if not project or ".." in project:
+            self._send_error_json("Missing or invalid project name")
+            return
+
+        ws = get_workspace_path()
+        sb_dir = os.path.normpath(os.path.join(ws, project, "Storyboard"))
+        if not sb_dir.startswith(ws):
+            self._send_error_json("Forbidden", 403)
+            return
+
+        os.makedirs(sb_dir, exist_ok=True)
+        sb_path = os.path.join(sb_dir, "storyboard.json")
+
+        # Inject updatedAt
+        from datetime import datetime, timezone
+        data["updatedAt"] = datetime.now(timezone.utc).isoformat()
+
+        try:
+            with open(sb_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            self._send_json({"ok": True, "updatedAt": data["updatedAt"]})
+        except Exception as e:
+            self._send_error_json(f"Failed to save storyboard: {str(e)}", 500)
+
+    def _handle_storyboard_sync_folders(self):
+        """POST /api/storyboard/sync-folders — create Storyboard/<episode>/<scene>/ dirs."""
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length) if length > 0 else b""
+
+        try:
+            data = json.loads(body)
+        except (json.JSONDecodeError, TypeError):
+            self._send_error_json("Invalid JSON")
+            return
+
+        project = data.get("project", "")
+        if not project or ".." in project:
+            self._send_error_json("Missing or invalid project name")
+            return
+
+        ws = get_workspace_path()
+        sb_base = os.path.normpath(os.path.join(ws, project, "Storyboard"))
+        if not sb_base.startswith(ws):
+            self._send_error_json("Forbidden", 403)
+            return
+
+        os.makedirs(sb_base, exist_ok=True)
+        created = []
+
+        episodes = data.get("episodes", {})
+        for ep_id, ep in episodes.items():
+            ep_title = ep.get("title", ep_id)
+            # Sanitize folder name
+            ep_dir_name = "".join(c for c in ep_title if c not in r'\/:*?"<>|').strip()
+            if not ep_dir_name:
+                ep_dir_name = ep_id
+            ep_dir = os.path.join(sb_base, ep_dir_name)
+            os.makedirs(ep_dir, exist_ok=True)
+            created.append(ep_dir_name)
+
+            scenes = ep.get("scenes", {})
+            for sc_id, sc in scenes.items():
+                sc_title = sc.get("title", sc_id)
+                sc_dir_name = "".join(c for c in sc_title if c not in r'\/:*?"<>|').strip()
+                if not sc_dir_name:
+                    sc_dir_name = sc_id
+                sc_dir = os.path.join(ep_dir, sc_dir_name)
+                os.makedirs(sc_dir, exist_ok=True)
+                created.append(f"{ep_dir_name}/{sc_dir_name}")
+
+        self._send_json({"ok": True, "created": created})
+
+    def _handle_script_analyze(self):
+        """POST /api/script/analyze — progressive screenplay analysis.
+        mode: "episodes" | "scenes" | "shots"
+        """
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length) if length > 0 else b""
+        try:
+            data = json.loads(body)
+        except (json.JSONDecodeError, TypeError):
+            self._send_error_json("Invalid JSON")
+            return
+        script_text = data.get("script_text", "")
+        mode = data.get("mode", "episodes")
+        model = data.get("model") or _config.get("models", {}).get("text_default", "doubao-seed-2-0-pro-260215")
+        if not ARK_API_KEY:
+            self._send_error_json("ARK API Key not configured", 400)
+            return
+        if not script_text.strip():
+            self._send_error_json("剧本内容为空")
+            return
+
+        # --- Mode: episodes ---
+        if mode == "episodes":
+            system_prompt = (
+                "你是一个专业的剧本分析师。请分析以下剧本文本，将其拆分为剧集(Episode)并提取角色、道具和场景。\n"
+                "请严格按照以下JSON格式返回结果，不要包含任何其他文字说明：\n"
+                "{\n"
+                '  "episodes": [{\n'
+                '    "title": "剧集标题",\n'
+                '    "summary": "剧集概要(50-100字)",\n'
+                '    "text": "该剧集对应的原文内容(完整保留)",\n'
+                '    "tags": ["标签"]\n'
+                '  }],\n'
+                '  "characters": [{ "name": "角色名", "description": "外貌服装等详细描述", "tags": ["主角"] }],\n'
+                '  "props": [{ "name": "道具名", "description": "外观描述", "category": "道具|场景|载具", "tags": [] }],\n'
+                '  "scenes": [{ "name": "场景名", "description": "场景环境描述(地点/氛围/光线/建筑风格)", "category": "室外|室内|科幻|古代", "tags": [] }]\n'
+                "}\n"
+                "要求：\n"
+                "- 每个episode的text字段必须包含该集的完整原文\n"
+                "- 角色描述需足够详细以生成参考图\n"
+                "- 场景描述需包含环境、建筑风格、光线氛围等细节以生成参考图\n"
+                "- 保持JSON格式严格正确"
+            )
+            user_text = f"请分析以下剧本并拆分剧集：\n\n---\n{script_text}\n---"
+            llm_json_schema = {"episodes": [], "characters": [], "props": [], "scenes": []}
+            self._call_llm_and_respond(model, system_prompt, user_text, llm_json_schema)
+            return
+
+        # --- Mode: scenes ---
+        if mode == "scenes":
+            system_prompt = (
+                "你是一个专业的剧本分析师。请分析以下剧集文本，将其拆分为场景(Scene)。\n"
+                "请严格按照以下JSON格式返回结果，不要包含任何其他文字说明：\n"
+                "{\n"
+                '  "scenes": [{\n'
+                '    "title": "场景标题",\n'
+                '    "summary": "场景描述(30-80字)",\n'
+                '    "text": "该场景对应的原文内容(完整保留)",\n'
+                '    "tags": ["标签"]\n'
+                '  }]\n'
+                "}\n"
+                "要求：\n"
+                "- 场景应根据地点、时间、氛围的变化来划分\n"
+                "- 每个scene的text字段必须包含该场景的完整原文\n"
+                "- 保持JSON格式严格正确"
+            )
+            user_text = f"请分析以下剧集文本并拆分场景：\n\n---\n{script_text}\n---"
+            llm_json_schema = {"scenes": []}
+            self._call_llm_and_respond(model, system_prompt, user_text, llm_json_schema)
+            return
+
+        # --- Mode: shots ---
+        system_prompt = (
+            "你是一个专业的剧本分析师和分镜师。请分析以下场景文本，将其拆分为镜头(Shot)。\n"
+            "请严格按照以下JSON格式返回结果，不要包含任何其他文字说明：\n"
+            "{\n"
+            '  "shots": [{\n'
+            '    "title": "镜头标题",\n'
+            '    "prompt": "详细画面描述(构图/光线/动作/氛围)，可直接用于AI视频生成",\n'
+            '    "duration": 5,\n'
+            '    "characters": ["该镜头涉及的角色名"],\n'
+            '    "props": ["该镜头涉及的道具名"],\n'
+            '    "scenes": ["该镜头涉及的场景/环境名"]\n'
+            '  }]\n'
+            "}\n"
+            "要求：\n"
+            "- 每个镜头的prompt应包含具体的画面描述，方便后续用于AI绘图/视频生成\n"
+            "- duration为该镜头的建议时长(秒)，仅允许5、8、10三个值，根据镜头复杂度和动作量判断\n"
+            "  简单静态镜头5秒，中等复杂度镜头8秒，复杂动态镜头或多动作镜头10秒\n"
+            "- characters和props填写该镜头中实际出现的角色和道具名称\n"
+            "- scenes填写该镜头中的场景/环境名称\n"
+            "- 保持JSON格式严格正确"
+        )
+        user_text = f"请分析以下场景文本并拆分镜头：\n\n---\n{script_text}\n---"
+        llm_json_schema = {"shots": []}
+        self._call_llm_and_respond(model, system_prompt, user_text, llm_json_schema)
+
+    def _call_llm_and_respond(self, model, system_prompt, user_text, expected_schema):
+        """Call ARK Responses API, parse JSON response, and send result."""
+        import socket
+        payload = {
+            "model": model,
+            "input": [
+                {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
+                {"role": "user", "content": [{"type": "input_text", "text": user_text}]}
+            ]
+        }
+        try:
+            headers = _ark_headers()
+            req = urllib.request.Request(
+                "https://ark.cn-beijing.volces.com/api/v3/responses",
+                data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                headers=headers, method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=300) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+            text = ""
+            for item in (result.get("output") or []):
+                if item.get("type") == "message":
+                    for c in (item.get("content") or []):
+                        if c.get("type") == "output_text":
+                            text += c.get("text", "")
+            if not text.strip():
+                self._send_error_json("LLM 未返回有效内容")
+                return
+            json_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', text)
+            json_str = json_match.group(1) if json_match else text
+            parsed = json.loads(json_str.strip())
+            self._send_json({"ok": True, "source": "llm", "result": parsed})
+        except (socket.timeout, TimeoutError):
+            self._send_error_json("AI 分析超时，请缩短剧本后重试", 504)
+        except urllib.error.URLError as e:
+            if "timed out" in str(e.reason).lower():
+                self._send_error_json("AI 分析超时，请缩短剧本后重试", 504)
+            else:
+                self._send_error_json(f"网络错误: {str(e.reason)}", 502)
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode("utf-8", errors="replace")
+            self._send_error_json(f"ARK API error: {err_body}", 502)
+        except json.JSONDecodeError:
+            self._send_error_json("LLM 返回的JSON格式无效，请重试")
+        except Exception as e:
+            self._send_error_json(f"分析失败: {str(e)}")
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
 

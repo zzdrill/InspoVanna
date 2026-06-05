@@ -9,7 +9,67 @@
     <style>
         * { font-family: 'Inter', sans-serif; }
 
-        /* Custom scrollbar */
+        /* ===== Dark Theme Design Tokens ===== */
+        :root {
+            --bg-deep: #020203; --bg-base: #0F172A; --bg-surface: #1E293B; --bg-elevated: #273549; --bg-hover: #334155;
+            --text-primary: #F1F5F9; --text-secondary: #94A3B8; --text-muted: #64748B; --text-faint: #475569;
+            --border-default: rgba(255,255,255,0.08); --border-hover: rgba(255,255,255,0.15); --border-strong: rgba(255,255,255,0.20);
+            --accent-indigo: #667EEA; --accent-indigo-hover: #5A6FD6; --accent-indigo-muted: rgba(102,126,234,0.15); --accent-indigo-glow: rgba(102,126,234,0.25);
+            --accent-pink: #EC4899; --accent-pink-hover: #DB2777; --accent-green: #10B981; --accent-green-hover: #059669;
+            --accent-red: #EF4444; --accent-blue: #3B82F6; --accent-yellow: #F59E0B;
+            --node-text: #A78BFA; --node-image: #F472B6; --node-video: #34D399; --node-audio: #A78BFA;
+            --overlay-light: rgba(0,0,0,0.5); --overlay-medium: var(--overlay-medium); --overlay-heavy: rgba(0,0,0,0.7);
+            --shadow-sm: 0 2px 8px var(--overlay-light); --shadow-md: 0 4px 16px var(--overlay-light); --shadow-lg: 0 20px 60px rgba(0,0,0,0.5);
+            --shadow-glow-indigo: 0 0 12px rgba(102,126,234,0.2);
+            --tag-bg: rgba(255,255,255,0.06); --tag-text: #94A3B8; --duration-bg: rgba(52,211,153,0.15); --duration-text: #34D399;
+            --input-bg: #0F172A; --input-border: rgba(255,255,255,0.08); --input-focus-border: #667EEA; --input-focus-ring: rgba(102,126,234,0.25);
+            --card-bg: #1E293B; --card-border: rgba(255,255,255,0.08); --card-hover-border: #667EEA;
+            --dialog-bg: #1E293B; --dialog-header-border: rgba(255,255,255,0.08);
+            --btn-ghost-bg: transparent; --btn-ghost-border: rgba(255,255,255,0.08); --btn-ghost-text: #94A3B8;
+            --btn-ghost-hover-bg: rgba(255,255,255,0.05); --btn-ghost-hover-border: rgba(255,255,255,0.15);
+            --close-hover-bg: rgba(239,68,68,0.15); --close-hover-text: #EF4444;
+            --scrollbar-track: #0F172A; --scrollbar-thumb: #334155; --scrollbar-thumb-hover: #475569;
+        }
+
+        /* ===== StoryBoard Light Theme Override ===== */
+        .sb-root {
+            --bg-deep: #F8FAFC; --bg-base: #F1F5F9; --bg-surface: #FFFFFF; --bg-elevated: #FFFFFF; --bg-hover: #F1F5F9;
+            --text-primary: #1E293B; --text-secondary: #64748B; --text-muted: #94A3B8; --text-faint: #CBD5E1;
+            --border-default: #E2E8F0; --border-hover: #CBD5E1; --border-strong: #94A3B8;
+            --accent-indigo: #7C3AED; --accent-indigo-hover: #6D28D9; --accent-indigo-muted: rgba(124,58,237,0.1); --accent-indigo-glow: rgba(124,58,237,0.15);
+            --overlay-heavy: rgba(0,0,0,0.35);
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.08); --shadow-lg: 0 10px 40px rgba(0,0,0,0.12);
+            --input-bg: #FFFFFF; --input-border: #E2E8F0; --input-focus-border: #7C3AED; --input-focus-ring: rgba(124,58,237,0.2);
+            --card-bg: #FFFFFF; --card-border: #E2E8F0; --card-hover-border: #7C3AED;
+            --dialog-bg: #FFFFFF; --dialog-header-border: #E2E8F0;
+            --btn-ghost-bg: transparent; --btn-ghost-border: #E2E8F0; --btn-ghost-text: #64748B;
+            --btn-ghost-hover-bg: #F1F5F9; --btn-ghost-hover-border: #CBD5E1;
+            --scrollbar-track: #F1F5F9; --scrollbar-thumb: #CBD5E1; --scrollbar-thumb-hover: #94A3B8;
+        }
+
+        /* ===== Vue Flow Light Overrides (Storyboard only) ===== */
+        .sb-canvas .vue-flow { background: #F8FAFC !important; border: none !important; outline: none !important; }
+        .sb-canvas .vue-flow__background { background: #F8FAFC !important; }
+        .sb-canvas .vue-flow__background pattern circle { fill: #CBD5E1 !important; }
+        .sb-canvas .vue-flow__pane { cursor: default; }
+        .sb-canvas .vue-flow__minimap { display: none !important; }
+        .sb-canvas .vue-flow__controls { background: #FFFFFF !important; border: 1px solid #E2E8F0 !important; border-radius: 8px !important; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .sb-canvas .vue-flow__controls-button { background: #FFFFFF !important; border-bottom: 1px solid #E2E8F0 !important; fill: #64748B !important; }
+        .sb-canvas .vue-flow__controls-button:hover { background: #F1F5F9 !important; fill: #1E293B !important; }
+        .sb-canvas .vue-flow__edge-path { stroke: #94A3B8; }
+        .sb-canvas .vue-flow__connection-line { stroke: #7C3AED; }
+        .sb-canvas .vue-flow__attribution { display: none !important; }
+
+        /* ===== Storyboard Utility Classes ===== */
+        .sb-text-muted { color: var(--text-muted); font-size: 12px; }
+        .sb-text-secondary { color: var(--text-secondary); font-size: 12px; }
+        .sb-text-indigo { color: var(--accent-indigo); font-size: 12px; }
+        .sb-text-faint { color: var(--text-faint); font-size: 12px; }
+        .sb-readonly { background: var(--bg-hover); color: var(--text-secondary); }
+        .sb-info-box { background: var(--accent-indigo-muted); color: var(--accent-indigo); border-radius: 4px; padding: 6px; }
+        .sb-inline-select { border: 1px solid var(--input-border); background: var(--input-bg); color: var(--text-primary); border-radius: 6px; padding: 6px 8px; font-size: 12px; }
+
+        /* Custom scrollbar (light theme global) */
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #f1f5f9; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
@@ -34,7 +94,7 @@
         }
         /* Mention tag in video prompt */
         .mention-tag {
-            background: #f3f4f6;
+            background: var(--bg-hover);
             color: #6b7280;
             padding: 1px 6px;
             border-radius: 4px;
@@ -52,7 +112,7 @@
             left: 0;
             top: 100%;
             z-index: 50;
-            background: white;
+            background: var(--card-bg);
             border: 1px solid #e5e7eb;
             border-radius: 8px;
             box-shadow: 0 4px 16px rgba(0,0,0,0.12);
@@ -78,7 +138,7 @@
             color: #374151;
         }
         #mention-popup .mention-item:hover {
-            background: #f3f4f6;
+            background: var(--bg-hover);
         }
         #mention-popup .mention-thumb {
             width: 32px;
@@ -109,7 +169,7 @@
 
         /* Gradient backgrounds */
         .gradient-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, var(--accent-indigo) 0%, #764ba2 100%);
         }
         .gradient-secondary {
             background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
@@ -137,7 +197,7 @@
         /* Loading spinner */
         .spinner {
             border: 3px solid #f3f3f3;
-            border-top: 3px solid #667eea;
+            border-top: 3px solid var(--accent-indigo);
             border-radius: 50%;
             width: 40px;
             height: 40px;
@@ -147,20 +207,20 @@
         /* Progress bar */
         .progress-bar {
             height: 4px;
-            background: #e2e8f0;
+            background: var(--border-default);
             border-radius: 2px;
             overflow: hidden;
         }
         .progress-bar-fill {
             height: 100%;
-            background: linear-gradient(90deg, #667eea, #764ba2);
+            background: linear-gradient(90deg, var(--accent-indigo), #764ba2);
             transition: width 0.3s ease;
         }
 
         /* Tab styles */
         .tab-active {
-            border-bottom: 2px solid #667eea;
-            color: #667eea;
+            border-bottom: 2px solid var(--accent-indigo);
+            color: var(--accent-indigo);
         }
 
         /* Modal */
@@ -181,8 +241,8 @@
             z-index: 9999;
             animation: slideIn 0.3s ease-out;
         }
-        .toast-success { background: #10b981; }
-        .toast-error { background: #ef4444; }
+        .toast-success { background: var(--accent-green); }
+        .toast-error { background: var(--accent-red); }
         .toast-info { background: #3b82f6; }
         .toast-warning { background: #f59e0b; }
 
@@ -190,8 +250,8 @@
         input:focus, textarea:focus, select:focus {
             outline: none;
             ring: 2px;
-            ring-color: #667eea;
-            border-color: #667eea;
+            ring-color: var(--accent-indigo);
+            border-color: var(--accent-indigo);
         }
     </style>
 </head>
@@ -242,6 +302,13 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
                     </svg>
                     视频生成
+                </button>
+
+                <button onclick="showPage('storyboard')" class="nav-btn w-full flex items-center px-4 py-3 rounded-lg text-left hover:bg-purple-50 transition-colors" data-page="storyboard">
+                    <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zM14 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/>
+                    </svg>
+                    StoryBoard
                 </button>
             </nav>
 
@@ -733,6 +800,9 @@
                 case 'settings':
                     content.innerHTML = renderSettingsPage();
                     break;
+                case 'storyboard':
+                    renderStoryboardPage(content);
+                    break;
             }
 
             // Re-render background task bar after page switch
@@ -777,7 +847,7 @@
                         </div>
 
                         <!-- Feature Cards -->
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-6 mb-12">
                             <div onclick="showPage('text')" class="bg-white rounded-2xl p-6 shadow-lg card-hover cursor-pointer">
                                 <div class="w-12 h-12 gradient-success rounded-lg flex items-center justify-center mb-4">
                                     <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -806,6 +876,16 @@
                                 </div>
                                 <h3 class="text-xl font-semibold text-gray-900 mb-2">视频生成</h3>
                                 <p class="text-gray-600">文生视频、图生视频、智能超清</p>
+                            </div>
+
+                            <div onclick="showPage('storyboard')" class="bg-white rounded-2xl p-6 shadow-lg card-hover cursor-pointer">
+                                <div class="w-12 h-12 bg-gradient-to-br from-amber-400 to-orange-500 rounded-lg flex items-center justify-center mb-4">
+                                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zM14 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/>
+                                    </svg>
+                                </div>
+                                <h3 class="text-xl font-semibold text-gray-900 mb-2">StoryBoard</h3>
+                                <p class="text-gray-600">分镜规划、多节点创作流程</p>
                             </div>
                         </div>
 
@@ -5245,6 +5325,55 @@
 
         // Start the app
         init();
+
+        // ========== StoryBoard Page ==========
+        function renderStoryboardPage(container) {
+            if (!container) container = document.getElementById('page-content');
+            container.style.cssText = 'display:flex;flex-direction:column;height:100%';
+            container.innerHTML = '<div id="storyboard-app" style="width:100%;flex:1;min-height:0;display:flex;flex-direction:column"><div style="flex:1;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:14px" id="sb-loading">StoryBoard 加载中...</div></div>';
+            let _sbAttempts = 0;
+            function tryMount() {
+                const el = document.getElementById('storyboard-app');
+                if (!el) return;
+                if (window.__storyboardMount) {
+                    window.__storyboardMount(el, state);
+                } else {
+                    _sbAttempts++;
+                    if (_sbAttempts > 100) {
+                        el.innerHTML = '<div style="text-align:center"><p style="color:#ef4444;font-size:14px">StoryBoard 模块加载超时</p><p style="color:#94a3b8;font-size:12px;margin-top:8px">请检查网络连接后刷新页面重试（需要访问 esm.sh CDN）</p><button onclick="location.reload()" style="margin-top:12px;padding:6px 16px;border-radius:6px;background:#6366f1;color:#fff;border:none;cursor:pointer;font-size:13px">刷新页面</button></div>';
+                        return;
+                    }
+                    setTimeout(tryMount, 100);
+                }
+            }
+            tryMount();
+            // Trigger module load if not already started
+            if (!window.__storyboardMount && typeof window.__loadStoryboard === 'function') {
+                window.__loadStoryboard();
+            }
+        }
+    </script>
+    <script type="module">
+        window.__loadStoryboard = async function() {
+            try {
+                const sb = await import('/web/storyboard.js');
+                window.__storyboardMount = sb.mount;
+                window.__storyboardUnmount = sb.unmount;
+                // Auto-mount if storyboard page is already visible
+                const el = document.getElementById('storyboard-app');
+                if (el) {
+                    sb.mount(el, window.state);
+                }
+            } catch(e) {
+                console.error('[StoryBoard] 模块加载失败:', e);
+                const el = document.getElementById('storyboard-app');
+                if (el) {
+                    el.innerHTML = '<div style="text-align:center;max-width:500px"><p style="color:#ef4444;font-size:14px">StoryBoard 模块加载失败</p><p style="color:#94a3b8;font-size:12px;margin-top:8px;word-break:break-all">' + (e.message || e) + '</p><button onclick="location.reload()" style="margin-top:12px;padding:6px 16px;border-radius:6px;background:#6366f1;color:#fff;border:none;cursor:pointer;font-size:13px">刷新页面</button></div>';
+                }
+            }
+        };
+        // Auto-start loading
+        window.__loadStoryboard();
     </script>
 </body>
 </html>
