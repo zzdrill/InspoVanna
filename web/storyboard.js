@@ -257,6 +257,9 @@ const StoryboardApp = {
         const nav = reactive({ level: 'episode', episodeId: null, sceneId: null });
         const editTarget = ref(null);
         const tagsText = ref('');
+        const treeVisible = ref(false);
+        const treeExpandedIds = reactive(new Set());
+        const assistantState = reactive({ show: false, input: '', messages: [], loading: false });
         let dirty = false, saveTimer = null;
 
         const currentEpisode = computed(() => nav.episodeId ? (sbData.episodes[nav.episodeId] || null) : null);
@@ -320,6 +323,50 @@ const StoryboardApp = {
         // Navigation
         function navigate(level) { saveFlowFromVueFlow(); if (level === 'episode') { nav.level = 'episode'; nav.episodeId = null; nav.sceneId = null; } else if (level === 'scene') { nav.level = 'scene'; nav.sceneId = null; } editTarget.value = null; syncFlowToVueFlow(); }
         function drillDown(entityId) { saveFlowFromVueFlow(); if (nav.level === 'episode') { nav.level = 'scene'; nav.episodeId = entityId; nav.sceneId = null; } else if (nav.level === 'scene') { nav.level = 'shot'; nav.sceneId = entityId; } editTarget.value = null; syncFlowToVueFlow(); }
+        function treeNav(episodeId, sceneId) {
+            saveFlowFromVueFlow();
+            if (sceneId) {
+                nav.level = 'shot'; nav.episodeId = episodeId; nav.sceneId = sceneId;
+            } else if (episodeId) {
+                nav.level = 'scene'; nav.episodeId = episodeId; nav.sceneId = null;
+            } else {
+                nav.level = 'episode'; nav.episodeId = null; nav.sceneId = null;
+            }
+            editTarget.value = null;
+            treeVisible.value = false;
+            syncFlowToVueFlow();
+        }
+        function toggleTreeExpand(epId, e) {
+            e.stopPropagation();
+            if (treeExpandedIds.has(epId)) treeExpandedIds.delete(epId);
+            else treeExpandedIds.add(epId);
+        }
+        function openAssistant() { assistantState.show = true; assistantState.input = ''; }
+        function closeAssistant() { assistantState.show = false; }
+        async function sendAssistantMessage() {
+            const msg = assistantState.input.trim();
+            if (!msg || assistantState.loading) return;
+            assistantState.messages.push({ role: 'user', content: msg });
+            assistantState.input = '';
+            assistantState.loading = true;
+            try {
+                const apiKey = window.state?.arkApiKey;
+                const model = window.state?.models?.text_default || 'doubao-seed-2-0-pro-260215';
+                if (!apiKey) throw new Error('请先在设置中配置 API Key');
+                const systemCtx = `你是 DreamHub StoryBoard 的 AI 助手，帮助用户进行剧本创作、分镜设计、提示词优化等。当前项目: ${projectName.value || '未选择'}，当前层级: ${nav.level === 'episode' ? '剧集' : nav.level === 'scene' ? '场景' : '分镜'}${currentEpisode.value ? '，剧集: ' + currentEpisode.value.title : ''}${currentScene.value ? '，场景: ' + currentScene.value.title : ''}。请简洁专业地回答。`;
+                const apiMessages = [{ role: 'system', content: systemCtx }, ...assistantState.messages.slice(-20)];
+                const r = await fetch('/api/ark/chat', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model, messages: apiMessages })
+                });
+                const data = await r.json();
+                if (data.error) throw new Error(data.error);
+                const reply = data.choices?.[0]?.message?.content || data.output?.[0]?.content?.[0]?.text || '（无回复）';
+                assistantState.messages.push({ role: 'assistant', content: reply });
+            } catch (e) {
+                assistantState.messages.push({ role: 'assistant', content: '❌ ' + e.message });
+            } finally { assistantState.loading = false; }
+        }
 
         // CRUD
         function addEntity(nodeType) {
@@ -888,7 +935,37 @@ const StoryboardApp = {
         }
         async function loadFromServer() { await loadProjects(); if (!projects.value.length) return; const ps = window.state || {}; const init = ps.currentProject || projects.value[0]?.name; if (init) await selectProject(init); }
         async function saveIfNeeded() { if (!dirty || !projectName.value) return; saveFlowFromVueFlow(); dirty = false; try { await fetch('/api/storyboard/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: projectName.value, ...JSON.parse(JSON.stringify(sbData)) }) }); } catch (e) { console.error(e); } }
-        async function syncWorkspace() { if (!projectName.value) { window.showToast && window.showToast('请先选择项目', 'error'); return; } saveFlowFromVueFlow(); try { const r = await fetch('/api/storyboard/sync-folders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: projectName.value, episodes: JSON.parse(JSON.stringify(sbData.episodes)) }) }); if (r.ok) { const res = await r.json(); window.showToast && window.showToast(`同步完成，创建了 ${res.created?.length || 0} 个目录`, 'success'); } } catch (e) { window.showToast && window.showToast('同步失败', 'error'); } }
+        async function syncWorkspace() {
+            if (!projectName.value) { window.showToast && window.showToast('请先选择项目', 'error'); return; }
+            saveFlowFromVueFlow();
+            try {
+                const r = await fetch('/api/storyboard/sync-folders', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ project: projectName.value, episodes: JSON.parse(JSON.stringify(sbData.episodes)) })
+                });
+                if (!r.ok) { window.showToast && window.showToast('同步失败', 'error'); return; }
+                const res = await r.json();
+                const created = res.created?.length || 0;
+                const orphaned = res.to_delete || [];
+                if (orphaned.length > 0) {
+                    const list = orphaned.join('\n');
+                    if (confirm(`同步完成，创建了 ${created} 个目录。\n\n发现 ${orphaned.length} 个孤立目录（项目数据中已不存在）：\n${list}\n\n是否删除这些目录？`)) {
+                        const dr = await fetch('/api/storyboard/sync-folders', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ project: projectName.value, delete: orphaned })
+                        });
+                        if (dr.ok) {
+                            const dd = await dr.json();
+                            window.showToast && window.showToast(`同步完成：创建 ${created} 个，删除 ${dd.deleted?.length || 0} 个目录`, 'success');
+                        }
+                    } else {
+                        window.showToast && window.showToast(`同步完成，创建了 ${created} 个目录（跳过删除）`, 'success');
+                    }
+                } else {
+                    window.showToast && window.showToast(`同步完成，创建了 ${created} 个目录`, 'success');
+                }
+            } catch (e) { window.showToast && window.showToast('同步失败: ' + e.message, 'error'); }
+        }
 
         function selectHistory(nodeId, path) {
             const sc = currentScene.value; if (!sc) return;
@@ -1644,35 +1721,46 @@ const StoryboardApp = {
             Object.values(sbData.props || {}).forEach(p => { if (p.imageAsset) propImageMap[p.name] = p.imageAsset; });
             const sceneImageMap = {};
             Object.values(sbData.scenes || {}).forEach(s => { if (s.imageAsset) sceneImageMap[s.name] = s.imageAsset; });
+            // Flexible name matching: try exact match first, then substring match
+            function findAsset(name, map) {
+                if (map[name]) return map[name];
+                for (const key of Object.keys(map)) {
+                    if (key.includes(name) || name.includes(key)) return map[key];
+                }
+                return null;
+            }
+            function resolveRefs(names, map) {
+                return names.map(n => ({ name: n, asset: findAsset(n, map) })).filter(r => r.asset);
+            }
             let xOff = 50;
             for (const shot of (result.shots || [])) {
-                const refChars = (shot.characters || []).filter(n => charImageMap[n]);
-                const refProps = (shot.props || []).filter(n => propImageMap[n]);
-                const refScenes = (shot.scenes || []).filter(n => sceneImageMap[n]);
+                const refChars = resolveRefs(shot.characters || [], charImageMap);
+                const refProps = resolveRefs(shot.props || [], propImageMap);
+                const refScenes = resolveRefs(shot.scenes || [], sceneImageMap);
                 const imageNodes = [];
-                for (const charName of refChars) {
+                for (const r of refChars) {
                     const imgId = uid();
-                    sc.shots[imgId] = { ...emptyShot(imgId, 'image', charName), sceneId: nav.sceneId, summary: charName + ' 参考图' };
-                    sc.shots[imgId].properties.image.workspaceAsset = charImageMap[charName];
+                    sc.shots[imgId] = { ...emptyShot(imgId, 'image', r.name), sceneId: nav.sceneId, summary: r.name + ' 参考图' };
+                    sc.shots[imgId].properties.image.workspaceAsset = r.asset;
                     sc.flow.nodes.push({ id: imgId, type: 'imageShot', position: { x: xOff, y: 50 }, data: { ref: imgId } });
                     imageNodes.push(imgId); xOff += 280;
                 }
-                for (const propName of refProps) {
+                for (const r of refProps) {
                     const imgId = uid();
-                    sc.shots[imgId] = { ...emptyShot(imgId, 'image', propName), sceneId: nav.sceneId, summary: propName + ' 参考图' };
-                    sc.shots[imgId].properties.image.workspaceAsset = propImageMap[propName];
+                    sc.shots[imgId] = { ...emptyShot(imgId, 'image', r.name), sceneId: nav.sceneId, summary: r.name + ' 参考图' };
+                    sc.shots[imgId].properties.image.workspaceAsset = r.asset;
                     sc.flow.nodes.push({ id: imgId, type: 'imageShot', position: { x: xOff, y: 50 }, data: { ref: imgId } });
                     imageNodes.push(imgId); xOff += 280;
                 }
-                for (const sceneName of refScenes) {
+                for (const r of refScenes) {
                     const imgId = uid();
-                    sc.shots[imgId] = { ...emptyShot(imgId, 'image', sceneName), sceneId: nav.sceneId, summary: sceneName + ' 参考图' };
-                    sc.shots[imgId].properties.image.workspaceAsset = sceneImageMap[sceneName];
+                    sc.shots[imgId] = { ...emptyShot(imgId, 'image', r.name), sceneId: nav.sceneId, summary: r.name + ' 参考图' };
+                    sc.shots[imgId].properties.image.workspaceAsset = r.asset;
                     sc.flow.nodes.push({ id: imgId, type: 'imageShot', position: { x: xOff, y: 50 }, data: { ref: imgId } });
                     imageNodes.push(imgId); xOff += 280;
                 }
                 const vidId = uid();
-                sc.shots[vidId] = { ...emptyShot(vidId, 'video', shot.title || '镜头'), sceneId: nav.sceneId, summary: shot.prompt || '' };
+                sc.shots[vidId] = { ...emptyShot(vidId, 'video', shot.title || '镜头'), sceneId: nav.sceneId, summary: shot.summary || '' };
                 sc.shots[vidId].properties.video.prompt = shot.prompt || '';
                 if (shot.duration) sc.shots[vidId].properties.video.duration = shot.duration;
                 sc.flow.nodes.push({ id: vidId, type: 'videoShot', position: { x: xOff, y: 50 }, data: { ref: vidId } });
@@ -1707,21 +1795,31 @@ const StoryboardApp = {
                 else { window.showToast && window.showToast('读取文件失败', 'error'); }
             } catch (e) { window.showToast && window.showToast('读取失败', 'error'); }
         }
+        function onGlobalClick(e) {
+            if (treeVisible.value) {
+                const dropdown = e.target.closest('.sb-tree-dropdown');
+                if (!dropdown) treeVisible.value = false;
+            }
+        }
         onMounted(() => {
             loadFromServer();
             document.addEventListener('keydown', onKeyDown);
             document.addEventListener('keyup', onKeyUp);
+            document.addEventListener('click', onGlobalClick);
         });
         onBeforeUnmount(() => {
             saveIfNeeded(); clearTimeout(saveTimer);
             document.removeEventListener('keydown', onKeyDown);
             document.removeEventListener('keyup', onKeyUp);
+            document.removeEventListener('click', onGlobalClick);
         });
 
         return {
             sbData, projectName, projects, nav, editTarget, tagsText, optimizeState,
             currentEpisode, currentScene, hasProject,
-            navigate, drillDown, addEntity, deleteEntity, startEdit, closeEdit,
+            treeVisible, treeExpandedIds, assistantState,
+            navigate, drillDown, treeNav, toggleTreeExpand, openAssistant, closeAssistant, sendAssistantMessage,
+            addEntity, deleteEntity, startEdit, closeEdit,
             markDirty, updateTags, selectProject, autoLayout, syncWorkspace, generateFromShot, uploadAsset, uploadLocal,
             optimizePrompt, acceptOptimize, rejectOptimize, openPreview, closePreview, previewState, selectHistory,
             fitView: () => requestAnimationFrame(() => vfFitView({ padding: 0.2 })),
@@ -1777,11 +1875,56 @@ const StoryboardApp = {
             if (isShotLevel) tbBtns.push(html`<button onClick=${this.openGlobalSettings} class="sb-tb-btn">\u{2699} 全局设置</button>`);
         }
 
+        // Tree dropdown widget (inserted into crumbs after project select)
+        const treeDropdown = this.hasProject ? html`
+            <div class="sb-tree-dropdown">
+                <button class="sb-tree-toggle" onClick=${() => { this.treeVisible = !this.treeVisible; }}>
+                    📁 <span>目录</span> <span style=${this.treeVisible ? 'transform:rotate(90deg)' : ''}>▶</span>
+                </button>
+                ${this.treeVisible ? html`
+                    <div class="sb-tree-panel">
+                        <div class="sb-tree-body">
+                            <div class=${this.nav.level === 'episode' ? 'sb-tree-item active' : 'sb-tree-item'}
+                                onClick=${() => this.treeNav(null, null)}>
+                                <span class="sb-tree-icon">🏠</span>
+                                <span>全部剧集</span>
+                            </div>
+                            ${Object.values(this.sbData.episodes).map(ep => {
+                                const expanded = this.treeExpandedIds.has(ep.id);
+                                return html`
+                                <div key=${ep.id} class="sb-tree-group">
+                                    <div class=${this.nav.episodeId === ep.id && this.nav.level === 'scene' ? 'sb-tree-item active' : this.nav.episodeId === ep.id && this.nav.level === 'shot' ? 'sb-tree-item parent-active' : 'sb-tree-item'}>
+                                        <button class="sb-tree-arrow" onClick=${e => this.toggleTreeExpand(ep.id, e)}>
+                                            <span style=${expanded ? 'transform:rotate(90deg)' : ''}>▶</span>
+                                        </button>
+                                        <span class="sb-tree-icon" onClick=${() => this.treeNav(ep.id, null)}>🎬</span>
+                                        <span class="sb-tree-label" onClick=${() => this.treeNav(ep.id, null)}>${ep.title || '(未命名剧集)'}</span>
+                                        <span class="sb-tree-count" onClick=${() => this.treeNav(ep.id, null)}>${Object.keys(ep.scenes || {}).length}</span>
+                                    </div>
+                                    ${expanded ? Object.values(ep.scenes || {}).map(sc => html`
+                                                    <div key=${sc.id}
+                                                        class=${this.nav.sceneId === sc.id && this.nav.level === 'shot' ? 'sb-tree-item child active' : 'sb-tree-item child'}
+                                                        onClick=${() => this.treeNav(ep.id, sc.id)}>
+                                                        <span class="sb-tree-icon">🏖</span>
+                                                        <span class="sb-tree-label">${sc.title || '(未命名场景)'}</span>
+                                                        <span class="sb-tree-count">${Object.keys(sc.shots || {}).length}</span>
+                                                    </div>
+                                                `) : null}
+                                            </div>`;
+                                        })}
+                                    </div>
+                                </div>
+                            ` : null}
+                        </div>
+                    ` : null;
+
         // Breadcrumb
         const crumbs = [];
         if (this.projects.length > 0) { crumbs.push(html`<select class="sb-project-select" value=${this.projectName} onChange=${e => this.selectProject(e.target.value)}><option value="" disabled>选择项目...</option>${this.projects.map(p => html`<option value=${p.name} key=${p.name}>${p.name}</option>`)}</select>`); }
         else { crumbs.push(html`<span class="sb-crumb" style="color:var(--text-secondary)">无项目，请先在工作空间创建项目</span>`); }
         if (this.hasProject) {
+            crumbs.push(html`<span class="sb-crumb-sep">|</span>`);
+            crumbs.push(treeDropdown);
             crumbs.push(html`<span class="sb-crumb-sep">|</span>`);
             crumbs.push(html`<span class=${this.nav.level === 'episode' ? 'sb-crumb active' : 'sb-crumb'} onClick=${() => this.navigate('episode')}>剧集</span>`);
             if (this.currentEpisode) { crumbs.push(html`<span class="sb-crumb-sep">/</span>`); crumbs.push(html`<span class=${this.nav.level === 'scene' ? 'sb-crumb active' : 'sb-crumb'} onClick=${() => this.navigate('scene')}>${this.currentEpisode.title || '(...)'}</span>`); }
@@ -1925,8 +2068,8 @@ const StoryboardApp = {
                                     <option value="9:16">9:16</option>
                                 </select>
                                 ` : html`<p style="font-size:12px;color:var(--accent-indigo);margin:4px 0;padding:6px;background:var(--accent-indigo-muted);border-radius:4px">跟随第一张参考图片的分辨率和比例</p>`}
-                                <label>时长（秒）</label>
-                                <select value=${String(props.video?.duration || 5)} onChange=${this.onDurationChange}><option value="5">5s</option><option value="8">8s</option><option value="10">10s</option></select>
+                                <label style="display:flex;align-items:center;justify-content:space-between">时长（秒）<span style="font-weight:600;color:var(--accent-indigo)">${props.video?.duration || 5}s</span></label>
+                                <input type="range" min="4" max="15" step="1" value=${props.video?.duration || 5} onInput=${this.onDurationChange} class="sb-range-slider" />
                                 <label style="display:flex;align-items:center;gap:6px;margin-top:4px">
                                     <input type="checkbox" checked=${props.video?.followInput || false} onChange=${e => { props.video.followInput = e.target.checked; this.markDirty(); }} />
                                     <span>跟随输入图分辨率和比例</span>
@@ -2060,6 +2203,7 @@ const StoryboardApp = {
             </div>
         ` : null;
 
+
         return html`
             <div class="sb-root">
                 <div class="sb-breadcrumb">${crumbs}</div>
@@ -2071,13 +2215,35 @@ const StoryboardApp = {
                             onNodeDragStop=${this.onNodeDragStop} onConnect=${this.onConnect}
                             onNodeClick=${this.onNodeClick} onNodeDoubleClick=${this.onNodeDoubleClick} onEdgeClick=${this.onEdgeClick}
                             style="width:100%;height:100%;">
-                            <${Controls} /><${Background} gap=${20} /><${MiniMap} />
+                            <${Background} gap=${20} /><${MiniMap} />
                         </${VueFlow}>
                     </div>
                     ${!isShotLevel ? html`<div class="sb-card-grid">${cards}</div>` : null}
                     ${editPanel}
                     ${optimizeDialog}
                 </div>
+                <button class="sb-assistant-fab" onClick=${this.openAssistant} title="AI 助手">
+                    <img src="/resource/Run_elephant.png" alt="AI助手" />
+                </button>
+                ${this.assistantState.show ? html`
+                    <div class="sb-assistant-panel">
+                        <div class="sb-assistant-header">
+                            <span>🐘 AI 助手</span>
+                            <button class="sb-assistant-close" onClick=${this.closeAssistant}>✕</button>
+                        </div>
+                        <div class="sb-assistant-messages">
+                            ${this.assistantState.messages.length === 0 ? html`<div class="sb-assistant-hint">你好！我是 StoryBoard AI 助手，可以帮你优化提示词、分析剧本、设计分镜等。有什么可以帮你的？</div>` : null}
+                            ${this.assistantState.messages.map((m, i) => html`
+                                <div key=${i} class=${m.role === 'user' ? 'sb-assistant-msg user' : 'sb-assistant-msg bot'}>${m.content}</div>
+                            `)}
+                            ${this.assistantState.loading ? html`<div class="sb-assistant-msg bot">思考中...</div>` : null}
+                        </div>
+                        <div class="sb-assistant-input">
+                            <input value=${this.assistantState.input} onInput=${e => { this.assistantState.input = e.target.value; }} onKeydown=${e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.sendAssistantMessage(); } }} placeholder="输入问题..." />
+                            <button onClick=${this.sendAssistantMessage} disabled=${this.assistantState.loading || !this.assistantState.input.trim()}>发送</button>
+                        </div>
+                    </div>
+                ` : null}
                 ${libraryDialog}
                 ${this.globalSettings.show ? html`
                 <div class="sb-gs-overlay" onClick=${this.closeGlobalSettings} onKeyDown=${e => { if (e.key === 'Escape') this.closeGlobalSettings(); }} ref=${el => { if (el) el.focus(); }} tabIndex=${-1}>
@@ -2337,27 +2503,29 @@ const StoryboardApp = {
                                             </div>
                                             ${this.scriptState.level === 'episodes' ? html`
                                                 <div class="sb-imp-select-area">
-                                                    <h4>角色 (${(this.scriptState.result?.characters || []).length})</h4>
-                                                    ${(this.scriptState.result?.characters || []).length ? html`<div class="sb-imp-checks">${(this.scriptState.result.characters || []).map((c, i) => html`
-                                                        <label class=${c._imageAsset ? 'sb-imp-check has-img' : 'sb-imp-check'} key=${i}><input type="checkbox" checked=${!!this.scriptState.selectedChars[i]} onChange=${e => { this.scriptState.selectedChars[i] = e.target.checked; }} />${c._imageAsset ? html`<img class="sb-imp-check-thumb" src=${'/workspace/' + c._imageAsset} />` : null}${c.name}</label>
-                                                    `)}</div>` : html`<p style="font-size:12px;color:var(--text-secondary)">无角色</p>`}
-                                                    <h4 style="margin-top:12px">道具 (${(this.scriptState.result?.props || []).length})</h4>
-                                                    ${(this.scriptState.result?.props || []).length ? html`<div class="sb-imp-checks">${(this.scriptState.result?.props || []).map((p, i) => html`
-                                                        <label class=${p._imageAsset ? 'sb-imp-check has-img' : 'sb-imp-check'} key=${i}><input type="checkbox" checked=${!!this.scriptState.selectedProps[i]} onChange=${e => { this.scriptState.selectedProps[i] = e.target.checked; }} />${p._imageAsset ? html`<img class="sb-imp-check-thumb" src=${'/workspace/' + p._imageAsset} />` : null}${p.name}</label>
-                                                    `)}</div>` : html`<p style="font-size:12px;color:var(--text-secondary)">无道具</p>`}
-                                                    <h4 style="margin-top:12px">场景 (${(this.scriptState.result?.scenes || []).length})</h4>
-                                                    ${(this.scriptState.result?.scenes || []).length ? html`<div class="sb-imp-checks">${(this.scriptState.result?.scenes || []).map((s, i) => html`
-                                                        <label class=${s._imageAsset ? 'sb-imp-check has-img' : 'sb-imp-check'} key=${i}><input type="checkbox" checked=${!!this.scriptState.selectedScenes[i]} onChange=${e => { this.scriptState.selectedScenes[i] = e.target.checked; }} />${s._imageAsset ? html`<img class="sb-imp-check-thumb" src=${'/workspace/' + s._imageAsset} />` : null}${s.name}</label>
-                                                    `)}</div>` : html`<p style="font-size:12px;color:var(--text-secondary)">无场景</p>`}
-                                                    <div style="margin:12px 0">
+                                                    <div class="sb-imp-select-scroll">
+                                                        <h4>角色 (${(this.scriptState.result?.characters || []).length})</h4>
+                                                        ${(this.scriptState.result?.characters || []).length ? html`<div class="sb-imp-checks">${(this.scriptState.result.characters || []).map((c, i) => html`
+                                                            <label class=${c._imageAsset ? 'sb-imp-check has-img' : 'sb-imp-check'} key=${i}><input type="checkbox" checked=${!!this.scriptState.selectedChars[i]} onChange=${e => { this.scriptState.selectedChars[i] = e.target.checked; }} />${c._imageAsset ? html`<img class="sb-imp-check-thumb" src=${'/workspace/' + c._imageAsset} />` : null}${c.name}</label>
+                                                        `)}</div>` : html`<p style="font-size:12px;color:var(--text-secondary)">无角色</p>`}
+                                                        <h4 style="margin-top:12px">道具 (${(this.scriptState.result?.props || []).length})</h4>
+                                                        ${(this.scriptState.result?.props || []).length ? html`<div class="sb-imp-checks">${(this.scriptState.result?.props || []).map((p, i) => html`
+                                                            <label class=${p._imageAsset ? 'sb-imp-check has-img' : 'sb-imp-check'} key=${i}><input type="checkbox" checked=${!!this.scriptState.selectedProps[i]} onChange=${e => { this.scriptState.selectedProps[i] = e.target.checked; }} />${p._imageAsset ? html`<img class="sb-imp-check-thumb" src=${'/workspace/' + p._imageAsset} />` : null}${p.name}</label>
+                                                        `)}</div>` : html`<p style="font-size:12px;color:var(--text-secondary)">无道具</p>`}
+                                                        <h4 style="margin-top:12px">场景 (${(this.scriptState.result?.scenes || []).length})</h4>
+                                                        ${(this.scriptState.result?.scenes || []).length ? html`<div class="sb-imp-checks">${(this.scriptState.result?.scenes || []).map((s, i) => html`
+                                                            <label class=${s._imageAsset ? 'sb-imp-check has-img' : 'sb-imp-check'} key=${i}><input type="checkbox" checked=${!!this.scriptState.selectedScenes[i]} onChange=${e => { this.scriptState.selectedScenes[i] = e.target.checked; }} />${s._imageAsset ? html`<img class="sb-imp-check-thumb" src=${'/workspace/' + s._imageAsset} />` : null}${s.name}</label>
+                                                        `)}</div>` : html`<p style="font-size:12px;color:var(--text-secondary)">无场景</p>`}
+                                                    </div>
+                                                    <div class="sb-imp-select-footer">
                                                         <label style="font-size:12px;color:var(--text-muted);font-weight:500">画风</label>
                                                         <select class="sb-lib-style-sel sb-inline-select" value=${this.scriptState.styleIndex} onChange=${e => { this.scriptState.styleIndex = parseInt(e.target.value); }} style="display:block;width:100%;margin-top:4px">
                                                             ${STYLE_PRESETS.map((s, i) => html`<option value=${i} key=${i}>${s.label}</option>`)}
                                                         </select>
                                                         ${this.scriptState.styleIndex === STYLE_PRESETS.length - 1 ? html`<input class="sb-lib-style-custom sb-inline-select" value=${this.scriptState.styleCustom} onInput=${e => { this.scriptState.styleCustom = e.target.value; }} placeholder="输入自定义画风描述..." style="display:block;width:100%;margin-top:6px" />` : null}
-                                                    </div>
-                                                    <div class="sb-imp-actions">
-                                                        <button class="sb-imp-btn" onClick=${this.generateSelectedImages} disabled=${this.scriptState.generatingImages}>${this.scriptState.generatingImages ? this.scriptState.progress + '（可关闭窗口，后台继续）' : '\u{2728} 生成选中图片'}</button>
+                                                        <div class="sb-imp-actions" style="margin-top:10px">
+                                                            <button class="sb-imp-btn" onClick=${this.generateSelectedImages} disabled=${this.scriptState.generatingImages}>${this.scriptState.generatingImages ? this.scriptState.progress + '（可关闭窗口，后台继续）' : '\u{2728} 生成选中图片'}</button>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             ` : null}

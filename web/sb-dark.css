@@ -14,6 +14,7 @@
     width: 100%;
     min-height: 0;
     overflow: hidden;
+    position: relative;
     background: var(--bg-deep);
     color: var(--text-primary);
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -1689,10 +1690,23 @@
 .sb-imp-select-area {
     width: 260px;
     min-width: 260px;
-    overflow-y: auto;
     max-height: 50vh;
     padding-left: 16px;
     border-left: 1px solid var(--border-default);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.sb-imp-select-scroll {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+}
+.sb-imp-select-footer {
+    flex-shrink: 0;
+    border-top: 1px solid var(--border-default);
+    padding-top: 10px;
+    margin-top: 8px;
 }
 .sb-imp-select-area h4 {
     margin: 0 0 8px;
@@ -1967,4 +1981,350 @@
     border: 1px dashed rgba(124, 58, 237, 0.5);
     border-radius: 2px;
 }
+
+/* ----------------------------------------------------------
+   22. Tree directory navigation (FAB + panel)
+   ---------------------------------------------------------- */
+
+/* Floating action button — bottom-left corner, AI assistant */
+.sb-assistant-fab {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    z-index: 100;
+    width: auto;
+    height: auto;
+    border-radius: 0;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: transform 0.15s;
+}
+.sb-assistant-fab:hover {
+    transform: scale(1.1);
+}
+.sb-assistant-fab img {
+    width: 100px;
+    height: 100px;
+    object-fit: contain;
+    pointer-events: none;
+}
+
+/* Tree dropdown in breadcrumb */
+.sb-tree-dropdown {
+    position: relative;
+    flex-shrink: 0;
+}
+.sb-tree-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-secondary);
+    padding: 4px 8px;
+    border-radius: 6px;
+    transition: background 0.1s, color 0.1s;
+    white-space: nowrap;
+}
+.sb-tree-toggle:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+.sb-tree-toggle span:last-child {
+    font-size: 9px;
+    transition: transform 0.15s;
+    display: inline-block;
+}
+
+/* Tree panel — dropdown from breadcrumb */
+.sb-tree-panel {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 200;
+    width: 260px;
+    max-height: 50vh;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: 10px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+    overflow: hidden;
+    animation: sb-tree-in 0.12s ease-out;
+}
+@keyframes sb-tree-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.sb-tree-body {
+    overflow-y: auto;
+    max-height: 50vh;
+    padding: 6px 0;
+}
+
+/* Tree items */
+.sb-tree-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-primary);
+    border-radius: 0;
+    transition: background 0.1s;
+    user-select: none;
+}
+.sb-tree-item > * {
+    cursor: pointer;
+}
+.sb-tree-item:hover {
+    background: var(--bg-base);
+}
+.sb-tree-item.active {
+    background: rgba(124, 58, 237, 0.08);
+    color: var(--accent-indigo);
+    font-weight: 500;
+}
+.sb-tree-item.parent-active {
+    color: var(--accent-indigo);
+    font-weight: 500;
+}
+.sb-tree-item.child {
+    padding-left: 38px;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+}
+.sb-tree-item.child:hover {
+    color: var(--text-primary);
+}
+.sb-tree-item.child.active {
+    color: var(--accent-indigo);
+}
+
+/* Expand/collapse arrow */
+.sb-tree-arrow {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 2px 4px;
+    color: var(--text-muted);
+    font-size: 9px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border-radius: 3px;
+    transition: background 0.1s;
+}
+.sb-tree-arrow:hover {
+    background: var(--bg-base);
+    color: var(--text-primary);
+}
+.sb-tree-arrow span {
+    display: inline-block;
+    transition: transform 0.15s;
+}
+
+.sb-tree-icon {
+    flex-shrink: 0;
+    font-size: 14px;
+    width: 18px;
+    text-align: center;
+}
+.sb-tree-label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.sb-tree-count {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--text-muted);
+    background: var(--bg-base);
+    border-radius: 8px;
+    padding: 1px 6px;
+    min-width: 18px;
+    text-align: center;
+}
+.sb-tree-item.active .sb-tree-count {
+    background: rgba(124, 58, 237, 0.12);
+    color: var(--accent-indigo);
+}
+
+.sb-tree-group {
+    /* group container for an episode and its scenes */
+}
+
+/* ----------------------------------------------------------
+   23. Range slider (video duration)
+   ---------------------------------------------------------- */
+.sb-range-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--border-default);
+    outline: none;
+    cursor: pointer;
+    margin: 4px 0 8px;
+}
+.sb-range-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--accent-indigo);
+    border: 2px solid #fff;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+    cursor: pointer;
+    transition: transform 0.1s;
+}
+.sb-range-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
+}
+.sb-range-slider::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--accent-indigo);
+    border: 2px solid #fff;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+    cursor: pointer;
+}
+
+/* ----------------------------------------------------------
+   24. AI Assistant panel (bottom-left)
+   ---------------------------------------------------------- */
+.sb-assistant-panel {
+    position: absolute;
+    bottom: 120px;
+    left: 16px;
+    z-index: 150;
+    width: 360px;
+    max-height: 60vh;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: 12px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: sb-assistant-in 0.15s ease-out;
+}
+@keyframes sb-assistant-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.sb-assistant-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border-default);
+    font-weight: 600;
+    font-size: 13px;
+    flex-shrink: 0;
+}
+.sb-assistant-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 14px;
+    padding: 2px 4px;
+    border-radius: 4px;
+    line-height: 1;
+}
+.sb-assistant-close:hover {
+    color: var(--text-primary);
+    background: var(--bg-base);
+}
+.sb-assistant-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 120px;
+    max-height: 40vh;
+}
+.sb-assistant-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 20px 10px;
+    line-height: 1.6;
+}
+.sb-assistant-msg {
+    font-size: 13px;
+    line-height: 1.5;
+    padding: 8px 12px;
+    border-radius: 10px;
+    max-width: 90%;
+    word-break: break-word;
+    white-space: pre-wrap;
+}
+.sb-assistant-msg.user {
+    align-self: flex-end;
+    background: var(--accent-indigo);
+    color: #fff;
+    border-bottom-right-radius: 3px;
+}
+.sb-assistant-msg.bot {
+    align-self: flex-start;
+    background: var(--bg-base);
+    color: var(--text-primary);
+    border-bottom-left-radius: 3px;
+}
+.sb-assistant-input {
+    display: flex;
+    gap: 8px;
+    padding: 10px 14px;
+    border-top: 1px solid var(--border-default);
+    flex-shrink: 0;
+}
+.sb-assistant-input input {
+    flex: 1;
+    border: 1px solid var(--input-border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 13px;
+    background: var(--input-bg);
+    color: var(--text-primary);
+    outline: none;
+}
+.sb-assistant-input input:focus {
+    border-color: var(--accent-indigo);
+}
+.sb-assistant-input button {
+    background: var(--accent-indigo);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 6px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: opacity 0.1s;
+}
+.sb-assistant-input button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+.sb-assistant-input button:hover:not(:disabled) {
+    opacity: 0.9;
 }

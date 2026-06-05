@@ -632,6 +632,8 @@ class DreamHubHandler(BaseHTTPRequestHandler):
             self._handle_storyboard_sync_folders()
         elif path == "/api/script/analyze":
             self._handle_script_analyze()
+        elif path == "/api/ark/chat":
+            self._handle_ark_chat()
         else:
             self._send_error_json("Not found", 404)
 
@@ -1892,7 +1894,12 @@ class DreamHubHandler(BaseHTTPRequestHandler):
             self._send_error_json(f"Failed to save storyboard: {str(e)}", 500)
 
     def _handle_storyboard_sync_folders(self):
-        """POST /api/storyboard/sync-folders — create Storyboard/<episode>/<scene>/ dirs."""
+        """POST /api/storyboard/sync-folders — create and optionally prune Storyboard dirs.
+
+        JSON body: { project, episodes, delete?: [path, ...] }
+        - Without "delete": dry-run mode — returns created dirs and orphaned dirs to delete.
+        - With "delete": actually deletes the listed orphaned dirs.
+        """
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length) if length > 0 else b""
 
@@ -1913,31 +1920,71 @@ class DreamHubHandler(BaseHTTPRequestHandler):
             self._send_error_json("Forbidden", 403)
             return
 
+        # --- If "delete" array is provided, perform deletion ---
+        delete_list = data.get("delete")
+        if delete_list is not None:
+            deleted = []
+            for rel in delete_list:
+                if ".." in rel:
+                    continue
+                target = os.path.normpath(os.path.join(sb_base, rel))
+                if not target.startswith(sb_base):
+                    continue
+                if os.path.isdir(target):
+                    import shutil
+                    shutil.rmtree(target)
+                    deleted.append(rel)
+            self._send_json({"ok": True, "deleted": deleted})
+            return
+
+        # --- Dry-run: create new dirs, detect orphans ---
         os.makedirs(sb_base, exist_ok=True)
         created = []
 
+        # Build set of expected relative paths (sanitized folder names)
+        expected_ep_dirs = set()
+        expected_sc_dirs = set()  # relative to sb_base
+
+        def sanitize(name, fallback):
+            s = "".join(c for c in name if c not in r'\/:*?"<>|').strip()
+            return s if s else fallback
+
         episodes = data.get("episodes", {})
         for ep_id, ep in episodes.items():
-            ep_title = ep.get("title", ep_id)
-            # Sanitize folder name
-            ep_dir_name = "".join(c for c in ep_title if c not in r'\/:*?"<>|').strip()
-            if not ep_dir_name:
-                ep_dir_name = ep_id
+            ep_dir_name = sanitize(ep.get("title", ep_id), ep_id)
+            expected_ep_dirs.add(ep_dir_name)
             ep_dir = os.path.join(sb_base, ep_dir_name)
             os.makedirs(ep_dir, exist_ok=True)
             created.append(ep_dir_name)
 
             scenes = ep.get("scenes", {})
             for sc_id, sc in scenes.items():
-                sc_title = sc.get("title", sc_id)
-                sc_dir_name = "".join(c for c in sc_title if c not in r'\/:*?"<>|').strip()
-                if not sc_dir_name:
-                    sc_dir_name = sc_id
+                sc_dir_name = sanitize(sc.get("title", sc_id), sc_id)
+                expected_sc_dirs.add(ep_dir_name + "/" + sc_dir_name)
                 sc_dir = os.path.join(ep_dir, sc_dir_name)
                 os.makedirs(sc_dir, exist_ok=True)
                 created.append(f"{ep_dir_name}/{sc_dir_name}")
 
-        self._send_json({"ok": True, "created": created})
+        # Scan existing dirs on disk and find orphans
+        to_delete = []
+        if os.path.isdir(sb_base):
+            for ep_name in os.listdir(sb_base):
+                ep_path = os.path.join(sb_base, ep_name)
+                if not os.path.isdir(ep_path):
+                    continue
+                if ep_name not in expected_ep_dirs:
+                    to_delete.append(ep_name)
+                    continue
+                # Check scene subdirs
+                for sc_name in os.listdir(ep_path):
+                    sc_path = os.path.join(ep_path, sc_name)
+                    if not os.path.isdir(sc_path):
+                        continue
+                    rel = ep_name + "/" + sc_name
+                    if rel not in expected_sc_dirs:
+                        to_delete.append(rel)
+
+        self._send_json({"ok": True, "created": created, "to_delete": to_delete})
 
     def _handle_script_analyze(self):
         """POST /api/script/analyze — progressive screenplay analysis.
@@ -2017,7 +2064,8 @@ class DreamHubHandler(BaseHTTPRequestHandler):
             "{\n"
             '  "shots": [{\n'
             '    "title": "镜头标题",\n'
-            '    "prompt": "详细画面描述(构图/光线/动作/氛围)，可直接用于AI视频生成",\n'
+            '    "summary": "镜头简介(20-50字)，简要概括该镜头的内容，不要复制prompt",\n'
+            '    "prompt": "视频生成提示词，必须包含完整时间线。格式：先写画面总描述(构图/光线/动作/氛围)，然后按时间线分阶段描述。示例：[0-2s] 远景，阳光透过窗帘洒在书桌上，镜头缓慢推进。[2-5s] 中景，女孩坐在桌前翻阅相册，表情从微笑变为沉思。[5-8s] 特写，手指轻抚一张泛黄的照片，眼中泛起泪光。",\n'
             '    "duration": 5,\n'
             '    "characters": ["该镜头涉及的角色名"],\n'
             '    "props": ["该镜头涉及的道具名"],\n'
@@ -2025,9 +2073,11 @@ class DreamHubHandler(BaseHTTPRequestHandler):
             '  }]\n'
             "}\n"
             "要求：\n"
-            "- 每个镜头的prompt应包含具体的画面描述，方便后续用于AI绘图/视频生成\n"
-            "- duration为该镜头的建议时长(秒)，仅允许5、8、10三个值，根据镜头复杂度和动作量判断\n"
-            "  简单静态镜头5秒，中等复杂度镜头8秒，复杂动态镜头或多动作镜头10秒\n"
+            "- summary是镜头简介，由你概括该镜头的核心内容，不能直接复制prompt字段的内容\n"
+            "- prompt是视频生成提示词，必须包含时间线标注（如 [0-2s]、[2-5s]），按时间线分段描述画面变化\n"
+            "  每个时间段应包含具体的画面描述：镜头运动(推/拉/摇/移)、角色动作、光影变化、氛围营造\n"
+            "- duration为该镜头的建议时长(秒)，根据镜头内容和时间线需要灵活设定，允许值为4-15之间的任意整数\n"
+            "  根据画面复杂度和动作时间线需要来判断时长，不必局限于固定几档\n"
             "- characters和props填写该镜头中实际出现的角色和道具名称\n"
             "- scenes填写该镜头中的场景/环境名称\n"
             "- 保持JSON格式严格正确"
@@ -2035,6 +2085,41 @@ class DreamHubHandler(BaseHTTPRequestHandler):
         user_text = f"请分析以下场景文本并拆分镜头：\n\n---\n{script_text}\n---"
         llm_json_schema = {"shots": []}
         self._call_llm_and_respond(model, system_prompt, user_text, llm_json_schema)
+
+    def _handle_ark_chat(self):
+        """POST /api/ark/chat — simple chat proxy for the StoryBoard AI assistant."""
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length) if length > 0 else b""
+        try:
+            data = json.loads(body)
+        except (json.JSONDecodeError, TypeError):
+            self._send_error_json("Invalid JSON")
+            return
+        messages = data.get("messages", [])
+        model = data.get("model") or _config.get("models", {}).get("text_default", "doubao-seed-2-0-pro-260215")
+        if not ARK_API_KEY:
+            self._send_error_json("ARK API Key not configured", 400)
+            return
+        if not messages:
+            self._send_error_json("messages is empty", 400)
+            return
+        # Build ARK chat completion payload
+        payload = {
+            "model": model,
+            "messages": messages,
+        }
+        try:
+            headers = _ark_headers()
+            req = urllib.request.Request(
+                "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+                data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                headers=headers, method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+            self._send_json(result)
+        except Exception as e:
+            self._send_error_json(str(e), 500)
 
     def _call_llm_and_respond(self, model, system_prompt, user_text, expected_schema):
         """Call ARK Responses API, parse JSON response, and send result."""
