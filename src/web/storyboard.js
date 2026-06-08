@@ -202,8 +202,10 @@ const VideoShotNode = {
             <span class="sb-hl sb-hl-l" style=${{ top: '62%' }}>视频</span>
             <${VfHandle} type="target" position=${Position.Left} id="video-audio-in" style=${{ top: '85%' }} />
             <span class="sb-hl sb-hl-l" style=${{ top: '85%' }}>音频</span>
-            <${VfHandle} type="source" position=${Position.Right} id="video-out" style=${{ top: '50%' }} />
-            <span class="sb-hl sb-hl-r" style=${{ top: '50%' }}>视频</span>
+            <${VfHandle} type="source" position=${Position.Right} id="video-out" style=${{ top: '40%' }} />
+            <span class="sb-hl sb-hl-r" style=${{ top: '40%' }}>视频</span>
+            <${VfHandle} type="source" position=${Position.Right} id="video-frame-out" style=${{ top: '70%' }} />
+            <span class="sb-hl sb-hl-r" style=${{ top: '70%' }}>首尾帧</span>
         </div>`;
     },
 };
@@ -994,13 +996,13 @@ const StoryboardApp = {
             const flowNode = { id, type: 'imageShot', position: pos, data: { ref: id } };
             sc.flow.nodes.push(flowNode);
             vfAddNodes([buildOneNode(sc, flowNode)]);
-            const edgeId = 'e-' + id + '-' + sourceNodeId;
+            const edgeId = 'e-' + sourceNodeId + '-' + id;
             const edge = {
-                id: edgeId, source: id, target: sourceNodeId,
-                sourceHandle: 'image-out', targetHandle: 'video-image-in',
+                id: edgeId, source: sourceNodeId, target: id,
+                sourceHandle: 'video-frame-out', targetHandle: 'image-in',
                 animated: true,
-                data: { imageRole: frameRole, sourceType: 'image' },
-                style: { stroke: '#f472b6', strokeWidth: 2 }
+                data: { imageRole: frameRole, sourceType: 'video' },
+                style: { stroke: '#34d399', strokeWidth: 2 }
             };
             sc.flow.edges.push(edge);
             vfAddEdges([edge]);
@@ -1061,6 +1063,7 @@ const StoryboardApp = {
                 'prompt-out': ['prompt-in', 'video-prompt-in'],
                 'image-out': ['image-in', 'video-image-in'],
                 'video-out': ['video-video-in'],
+                'video-frame-out': ['image-in'],
                 'audio-out': ['video-audio-in'],
             };
             const allowed = validMap[srcHandle] || [];
