@@ -1170,19 +1170,18 @@ const StoryboardApp = {
                     shotGroups.push([n.id]); handled.add(n.id);
                 }
             }
-            // Merge lone frame nodes into their parent video node's group
+            // Exclude frame nodes (connected via video-frame-out) from auto-layout
+            // They will be positioned relative to their parent video node afterward
+            const frameEdges = edges.filter(e => e.sourceHandle === 'video-frame-out');
+            const frameNodeIds = new Set(frameEdges.map(e => e.target));
+            const frameByParent = {};
+            for (const fe of frameEdges) {
+                if (!frameByParent[fe.source]) frameByParent[fe.source] = [];
+                frameByParent[fe.source].push(fe.target);
+            }
             for (let i = shotGroups.length - 1; i >= 0; i--) {
-                const group = shotGroups[i];
-                if (group.length === 1) {
-                    const frameEdge = edges.find(e => e.target === group[0] && e.sourceHandle === 'video-frame-out');
-                    if (frameEdge) {
-                        const parentIdx = shotGroups.findIndex(g => g.includes(frameEdge.source));
-                        if (parentIdx >= 0 && parentIdx !== i) {
-                            shotGroups[parentIdx].push(group[0]);
-                            shotGroups.splice(i, 1);
-                        }
-                    }
-                }
+                shotGroups[i] = shotGroups[i].filter(id => !frameNodeIds.has(id));
+                if (shotGroups[i].length === 0) shotGroups.splice(i, 1);
             }
             // --- Layout each shot group as a column in a grid ---
             const nodeW = 180, hGap = 80, vGap = 60, groupGap = 160, maxPerRow = 4;
@@ -1248,6 +1247,25 @@ const StoryboardApp = {
             // Apply positions
             nodes.forEach(n => { if (positions[n.id]) n.position = positions[n.id]; });
             vfSetNodes(vfGetNodes.value.map(n => ({ ...n, position: positions[n.id] || n.position })));
+            // Position frame nodes relative to their parent video node
+            const frameNodeH = 180;
+            for (const [parentId, childIds] of Object.entries(frameByParent)) {
+                const parentPos = positions[parentId];
+                if (!parentPos) continue;
+                childIds.forEach((id, i) => {
+                    const yOff = (i - (childIds.length - 1) / 2) * frameNodeH;
+                    positions[id] = { x: parentPos.x + nodeW + hGap, y: parentPos.y + yOff };
+                });
+            }
+            // Apply frame positions
+            const vfNodes = vfGetNodes.value;
+            for (const n of vfNodes) {
+                if (frameNodeIds.has(n.id) && positions[n.id]) {
+                    n.position = positions[n.id];
+                    const fn = nodes.find(nd => nd.id === n.id);
+                    if (fn) fn.position = positions[n.id];
+                }
+            }
             markDirty();
         }
 
