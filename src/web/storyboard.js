@@ -999,30 +999,6 @@ const StoryboardApp = {
             return sc ? sc.flow.edges.some(e => e.source === nodeId) : false;
         }
 
-        function createFrameNode(label, assetPath, nodePos, sourceNodeId, frameRole) {
-            const sc = currentScene.value;
-            const id = uid();
-            const pos = { x: nodePos.x, y: nodePos.y };
-            const isFrame = frameRole === 'firstFrame' || frameRole === 'lastFrame';
-            sc.shots[id] = { ...emptyShot(id, 'image', label), sceneId: nav.sceneId, summary: label };
-            if (isFrame) sc.shots[id]._frameIcon = frameRole;
-            sc.shots[id].properties.image.workspaceAsset = assetPath;
-            const flowNode = { id, type: 'imageShot', position: pos, data: { ref: id } };
-            sc.flow.nodes.push(flowNode);
-            vfAddNodes([buildOneNode(sc, flowNode)]);
-            const edgeId = 'e-' + sourceNodeId + '-' + id;
-            const edge = {
-                id: edgeId, source: sourceNodeId, target: id,
-                sourceHandle: 'video-frame-out', targetHandle: 'image-in',
-                animated: true,
-                data: { imageRole: frameRole, sourceType: 'video' },
-                style: { stroke: '#34d399', strokeWidth: 2 }
-            };
-            sc.flow.edges.push(edge);
-            vfAddEdges([edge]);
-            markDirty();
-        }
-
         async function extractFrames(nodeId) {
             const sc = currentScene.value;
             const vfNode = sc?.flow.nodes.find(n => n.id === nodeId);
@@ -1046,13 +1022,38 @@ const StoryboardApp = {
                 if (data.error) throw new Error(data.error);
                 if (!data.first && !data.last) throw new Error('未能提取到帧图片，请确认视频文件有效');
                 const bx = vfNode.position.x, by = vfNode.position.y;
+                const frameNodes = [];
+                const createFrame = (label, assetPath, pos, frameRole) => {
+                    const id = uid();
+                    sc.shots[id] = { ...emptyShot(id, 'image', label), sceneId: nav.sceneId, summary: label };
+                    sc.shots[id]._frameIcon = frameRole;
+                    sc.shots[id].properties.image.workspaceAsset = assetPath;
+                    sc.flow.nodes.push({ id, type: 'imageShot', position: { x: pos.x, y: pos.y }, data: { ref: id } });
+                    sc.flow.edges.push({
+                        id: 'e-' + nodeId + '-' + id, source: nodeId, target: id,
+                        sourceHandle: 'video-frame-out', targetHandle: 'image-in',
+                        animated: true,
+                        data: { imageRole: frameRole, sourceType: 'video' },
+                        style: { stroke: '#34d399', strokeWidth: 2 }
+                    });
+                    frameNodes.push({ id, x: pos.x, y: pos.y });
+                };
                 if (data.first && data.last) {
-                    createFrameNode('首帧', data.first.replace('/workspace/', ''), { x: bx + 250, y: by - 140 }, nodeId, 'firstFrame');
-                    createFrameNode('尾帧', data.last.replace('/workspace/', ''), { x: bx + 250, y: by + 140 }, nodeId, 'lastFrame');
+                    createFrame('首帧', data.first.replace('/workspace/', ''), { x: bx + 250, y: by - 140 }, 'firstFrame');
+                    createFrame('尾帧', data.last.replace('/workspace/', ''), { x: bx + 250, y: by + 140 }, 'lastFrame');
                 } else {
-                    if (data.first) createFrameNode('首帧', data.first.replace('/workspace/', ''), { x: bx + 250, y: by }, nodeId, 'firstFrame');
-                    if (data.last) createFrameNode('尾帧', data.last.replace('/workspace/', ''), { x: bx + 250, y: by }, nodeId, 'lastFrame');
+                    if (data.first) createFrame('首帧', data.first.replace('/workspace/', ''), { x: bx + 250, y: by }, 'firstFrame');
+                    if (data.last) createFrame('尾帧', data.last.replace('/workspace/', ''), { x: bx + 250, y: by }, 'lastFrame');
                 }
+                // Rebuild all Vue Flow nodes from model data
+                syncFlowToVueFlow();
+                // Force correct positions after Vue Flow renders
+                await nextTick();
+                for (const fn of frameNodes) {
+                    const vn = vfGetNodes.value.find(n => n.id === fn.id);
+                    if (vn) { vn.position = { x: fn.x, y: fn.y }; }
+                }
+                markDirty();
                 window.showToast && window.showToast('已导出首尾帧并创建图像节点', 'success');
             } catch (e) {
                 window.showToast && window.showToast('导出帧失败: ' + e.message, 'error');
