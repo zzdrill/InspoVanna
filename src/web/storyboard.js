@@ -1170,6 +1170,20 @@ const StoryboardApp = {
                     shotGroups.push([n.id]); handled.add(n.id);
                 }
             }
+            // Merge lone frame nodes into their parent video node's group
+            for (let i = shotGroups.length - 1; i >= 0; i--) {
+                const group = shotGroups[i];
+                if (group.length === 1) {
+                    const frameEdge = edges.find(e => e.target === group[0] && e.sourceHandle === 'video-frame-out');
+                    if (frameEdge) {
+                        const parentIdx = shotGroups.findIndex(g => g.includes(frameEdge.source));
+                        if (parentIdx >= 0 && parentIdx !== i) {
+                            shotGroups[parentIdx].push(group[0]);
+                            shotGroups.splice(i, 1);
+                        }
+                    }
+                }
+            }
             // --- Layout each shot group as a column in a grid ---
             const nodeW = 180, hGap = 80, vGap = 60, groupGap = 160, maxPerRow = 4;
             const positions = {};
@@ -1184,12 +1198,8 @@ const StoryboardApp = {
                 while (gi < gQueue.length) {
                     const cur = gQueue[gi++];
                     for (const nxt of outEdges[cur]) {
-                        if (gSet.has(nxt)) {
-                            // Frame output nodes (video-frame-out) share same depth as parent (vertical stack)
-                            const edge = edges.find(e => e.source === cur && e.target === nxt);
-                            const isFrameOut = edge && edge.sourceHandle === 'video-frame-out';
-                            const nd = gDepth[cur] + (isFrameOut ? 0 : 1);
-                            if ((gDepth[nxt] ?? -1) < nd) { gDepth[nxt] = nd; gQueue.push(nxt); }
+                        if (gSet.has(nxt) && (gDepth[nxt] ?? -1) < gDepth[cur] + 1) {
+                            gDepth[nxt] = gDepth[cur] + 1; gQueue.push(nxt);
                         }
                     }
                 }
