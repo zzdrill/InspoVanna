@@ -162,7 +162,7 @@ const ImageShotNode = {
             ${hist.length > 0 ? html`<div class="sb-history-bar">${hist.slice(-5).map(h => html`<div class=${'sb-history-item' + (h.selected ? ' active' : '')} onClick=${e => { e.stopPropagation(); this.act.selectHistory(this.id, h.path); }}><img src=${'/workspace/' + h.path} /></div>`)}</div>` : null}
             ${d.summary ? html`<div class="sb-node-summary">${d.summary}</div>` : null}
             <div class="sb-node-actions">
-                <button class="sb-upload-btn" title="素材库" onClick=${e => { e.stopPropagation(); this.act.pickLibrary(this.id); }}>\u{1F3A8}</button>
+                <button class="sb-upload-btn" title="素材库" onClick=${e => { e.stopPropagation(); this.act.pickLibrary(this.id); }}>\u{1F4DA}</button>
                 <button class="sb-upload-btn" title="工作空间" onClick=${e => { e.stopPropagation(); this.act.upload(this.id); }}>\u{1F4C2}</button>
                 <button class="sb-upload-btn" title="上传" onClick=${e => { e.stopPropagation(); this.act.uploadLocal(this.id); }}>\u{1F4E4}</button>
                 <button class="sb-gen-btn sb-gen-image" title="生成" disabled=${d.generating} onClick=${e => { e.stopPropagation(); this.act.generate(this.id); }}>\u{25B6}</button>
