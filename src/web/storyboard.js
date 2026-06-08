@@ -191,6 +191,7 @@ const VideoShotNode = {
             <div class="sb-node-actions">
                 <button class="sb-upload-btn" title="工作空间" onClick=${e => { e.stopPropagation(); this.act.upload(this.id); }}>\u{1F4C2}</button>
                 <button class="sb-upload-btn" title="上传" onClick=${e => { e.stopPropagation(); this.act.uploadLocal(this.id); }}>\u{1F4E4}</button>
+                ${d.hasAsset ? html`<button class="sb-upload-btn" title="导出首尾帧" disabled=${d.extracting} onClick=${e => { e.stopPropagation(); this.act.extractFrames(this.id); }}>\u{1F5BC}</button>` : null}
                 <button class="sb-gen-btn sb-gen-video" title="生成" disabled=${d.generating} onClick=${e => { e.stopPropagation(); this.act.generate(this.id); }}>\u{25B6}</button>
             </div>
             <${VfHandle} type="target" position=${Position.Left} id="video-prompt-in" style=${{ top: '15%' }} />
@@ -286,7 +287,7 @@ const StoryboardApp = {
                 history: (nt === 'image' ? p.image?.history : nt === 'video' ? p.video?.history : nt === 'audio' ? p.audio?.history : []) || [],
             };
             if (nt === 'image' && p.image?.workspaceAsset) nodeData.assetUrl = '/workspace/' + p.image.workspaceAsset;
-            if (nt === 'video' && p.video?.workspaceAsset) nodeData.assetUrl = '/workspace/' + p.video.workspaceAsset;
+            if (nt === 'video' && p.video?.workspaceAsset) { nodeData.assetUrl = '/workspace/' + p.video.workspaceAsset; nodeData.hasAsset = true; }
             if (nt === 'audio' && p.audio?.workspaceAsset) nodeData.assetUrl = '/workspace/' + p.audio.workspaceAsset;
             if (nt === 'text' && p.text?.workspaceAsset) nodeData.assetUrl = '/workspace/' + p.text.workspaceAsset;
             return { id: n.id, type: nt + 'Shot', position: { ...n.position }, data: nodeData };
@@ -984,7 +985,67 @@ const StoryboardApp = {
             return sc ? sc.flow.edges.some(e => e.source === nodeId) : false;
         }
 
-        provide(SB_ACTIONS, { drilldown: drillDown, del: deleteEntity, edit: startEdit, generate: generateFromShot, upload: uploadAsset, uploadLocal: uploadLocal, optimize: optimizePrompt, preview: openPreview, selectHistory, hasOutput: hasOutputConnection, pickLibrary: pickFromLibrary });
+        function createFrameNode(label, assetPath, basePos, offset, sourceNodeId, frameRole) {
+            const sc = currentScene.value;
+            const id = uid();
+            const pos = { x: basePos.x + 250, y: basePos.y + offset * 150 };
+            sc.shots[id] = { ...emptyShot(id, 'image', label), sceneId: nav.sceneId, summary: label };
+            sc.shots[id].properties.image.workspaceAsset = assetPath;
+            const flowNode = { id, type: 'imageShot', position: pos, data: { ref: id } };
+            sc.flow.nodes.push(flowNode);
+            vfAddNodes([buildOneNode(sc, flowNode)]);
+            const edgeId = 'e-' + id + '-' + sourceNodeId;
+            const edge = {
+                id: edgeId, source: id, target: sourceNodeId,
+                sourceHandle: 'image-out', targetHandle: 'video-image-in',
+                animated: true,
+                data: { imageRole: frameRole, sourceType: 'image' },
+                style: { stroke: '#f472b6', strokeWidth: 2 }
+            };
+            sc.flow.edges.push(edge);
+            vfAddEdges([edge]);
+            markDirty();
+        }
+
+        async function extractFrames(nodeId) {
+            const sc = currentScene.value;
+            const vfNode = sc?.flow.nodes.find(n => n.id === nodeId);
+            if (!vfNode) return;
+            const shot = sc.shots[vfNode.data?.ref];
+            if (!shot) return;
+            const asset = shot.properties.video?.workspaceAsset;
+            if (!asset) { window.showToast && window.showToast('该节点没有关联的视频文件', 'error'); return; }
+            const sanitize = (s, fb) => (s || fb).replace(/[\\/:*?"<>|]/g, '').trim() || fb;
+            const ep = currentEpisode.value;
+            const outputDir = projectName.value + '/Storyboard/' + sanitize(ep?.title, nav.episodeId) + '/' + sanitize(sc?.title, nav.sceneId);
+            vfNode.data = { ...vfNode.data, extracting: true };
+            syncNodeToFlow(nodeId);
+            try {
+                const resp = await fetch('/api/workspace/extract-frames', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ videoPath: asset, outputDir })
+                });
+                const data = await resp.json();
+                if (data.error) throw new Error(data.error);
+                const basePos = { ...vfNode.position };
+                let idx = 0;
+                if (data.first) {
+                    createFrameNode('首帧', data.first.replace('/workspace/', ''), basePos, idx++, nodeId, 'firstFrame');
+                }
+                if (data.last) {
+                    createFrameNode('尾帧', data.last.replace('/workspace/', ''), basePos, idx++, nodeId, 'lastFrame');
+                }
+                window.showToast && window.showToast('已导出首尾帧并创建图像节点', 'success');
+            } catch (e) {
+                window.showToast && window.showToast('导出帧失败: ' + e.message, 'error');
+            } finally {
+                vfNode.data = { ...vfNode.data, extracting: false };
+                syncNodeToFlow(nodeId);
+            }
+        }
+
+        provide(SB_ACTIONS, { drilldown: drillDown, del: deleteEntity, edit: startEdit, generate: generateFromShot, upload: uploadAsset, uploadLocal: uploadLocal, optimize: optimizePrompt, preview: openPreview, selectHistory, hasOutput: hasOutputConnection, pickLibrary: pickFromLibrary, extractFrames });
 
         function onNodeDragStop() { saveFlowFromVueFlow(); markDirty(); }
         function onConnect(params) {

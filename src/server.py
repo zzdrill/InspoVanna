@@ -1796,16 +1796,25 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
                 self._send_error_json("Video file not found", 404)
                 return
 
-            # Determine output directory: Image folder (same project level as video)
-            parts = video_rel.replace("\\", "/").split("/")
-            parent_parts = parts[:-1]  # e.g. ["project", "Video"]
-            if parent_parts:
-                parent_parts[-1] = "Image"
-                image_dir = os.path.normpath(os.path.join(ws_path, *parent_parts))
+            # Determine output directory
+            output_rel = data.get("outputDir", "")
+            if output_rel:
+                image_dir = os.path.normpath(os.path.join(ws_path, output_rel))
+                if not image_dir.startswith(ws_path):
+                    self._send_error_json("Forbidden outputDir", 403)
+                    return
             else:
-                image_dir = os.path.join(ws_path, "Image")
+                # Default: Image folder (same project level as video)
+                parts = video_rel.replace("\\", "/").split("/")
+                parent_parts = parts[:-1]  # e.g. ["project", "Video"]
+                if parent_parts:
+                    parent_parts[-1] = "Image"
+                    image_dir = os.path.normpath(os.path.join(ws_path, *parent_parts))
+                else:
+                    image_dir = os.path.join(ws_path, "Image")
             os.makedirs(image_dir, exist_ok=True)
 
+            parts = video_rel.replace("\\", "/").split("/")
             video_name = os.path.splitext(parts[-1])[0]
             first_path = os.path.join(image_dir, f"First+{video_name}.png")
             last_path = os.path.join(image_dir, f"Last+{video_name}.png")
