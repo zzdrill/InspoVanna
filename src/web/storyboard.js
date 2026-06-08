@@ -1045,13 +1045,13 @@ const StoryboardApp = {
                 const data = await resp.json();
                 if (data.error) throw new Error(data.error);
                 if (!data.first && !data.last) throw new Error('未能提取到帧图片，请确认视频文件有效');
-                const basePos = { x: vfNode.position.x, y: vfNode.position.y };
-                let idx = 0;
-                if (data.first) {
-                    createFrameNode('首帧', data.first.replace('/workspace/', ''), basePos, idx++, nodeId, 'firstFrame');
-                }
-                if (data.last) {
-                    createFrameNode('尾帧', data.last.replace('/workspace/', ''), basePos, idx++, nodeId, 'lastFrame');
+                const bx = vfNode.position.x, by = vfNode.position.y;
+                if (data.first && data.last) {
+                    createFrameNode('首帧', data.first.replace('/workspace/', ''), { x: bx + 250, y: by - 140 }, 0, nodeId, 'firstFrame');
+                    createFrameNode('尾帧', data.last.replace('/workspace/', ''), { x: bx + 250, y: by + 140 }, 0, nodeId, 'lastFrame');
+                } else {
+                    if (data.first) createFrameNode('首帧', data.first.replace('/workspace/', ''), { x: bx + 250, y: by }, 0, nodeId, 'firstFrame');
+                    if (data.last) createFrameNode('尾帧', data.last.replace('/workspace/', ''), { x: bx + 250, y: by }, 0, nodeId, 'lastFrame');
                 }
                 window.showToast && window.showToast('已导出首尾帧并创建图像节点', 'success');
             } catch (e) {
