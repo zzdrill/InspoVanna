@@ -1,4 +1,4 @@
-"""Create a DreamHub desktop shortcut with custom icon (Windows).
+"""Create a InspoVanna desktop shortcut with custom icon (Windows).
 
 Uses PowerShell's WScript.Shell COM to create a .lnk shortcut —
 no extra Python dependencies required.
@@ -19,7 +19,7 @@ def create_shortcut():
         return False
 
     desktop = os.path.join(os.path.expanduser("~"), "Desktop")
-    shortcut_path = os.path.join(desktop, "DreamHub.lnk")
+    shortcut_path = os.path.join(desktop, "InspoVanna.lnk")
 
     if os.path.exists(shortcut_path):
         return True  # Already exists
@@ -38,7 +38,7 @@ $sc = $ws.CreateShortcut("{shortcut_path}")
 $sc.TargetPath = "{bat_path}"
 $sc.WorkingDirectory = "{PROJECT_ROOT}"
 $sc.IconLocation = "{ico_path},0"
-$sc.Description = "DreamHub - AI创意工作室"
+$sc.Description = "InspoVanna - AI创意工作室"
 $sc.Save()
 '''
 

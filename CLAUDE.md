@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-DreamHub is a local AI creative studio — a Python HTTP server that serves a single-page web frontend for interacting with Volcano Engine (火山引擎) AI services. It supports text chat, image generation, video generation, video enhancement, and storyboard-based creative planning through the Volcano Engine ARK API.
+InspoVanna is a local AI creative studio — a Python HTTP server that serves a single-page web frontend for interacting with Volcano Engine (火山引擎) AI services. It supports text chat, image generation, video generation, video enhancement, and storyboard-based creative planning through the Volcano Engine ARK API.
 
 ## Running the Application
 
@@ -30,14 +30,14 @@ There is no test framework, linter, or build step.
 ## File Structure
 
 ```
-DreamHub/
+InspoVanna/
 ├── src/
 │   ├── server.py               # Single-file Python backend (2197 lines)
 │   ├── setup_icon.py           # Generate favicon.ico from logo PNG
 │   ├── setup_shortcut.py       # Create Windows desktop shortcut with icon
 │   ├── setup_app.py            # Create macOS .app bundle with icon
 │   ├── web/
-│   │   ├── dreamhub.html       # Main SPA (~5379 lines, vanilla JS + Tailwind CDN)
+│   │   ├── inspovanna.html       # Main SPA (~5379 lines, vanilla JS + Tailwind CDN)
 │   │   ├── storyboard.js       # StoryBoard module (2599 lines, Vue 3 + Vue Flow)
 │   │   ├── sb-dark.css         # StoryBoard stylesheet (2330 lines)
 │   │   ├── sb-test.html        # Vue Flow integration test page
@@ -61,7 +61,7 @@ DreamHub/
 
 ### Backend (`src/server.py`)
 
-A single-file Python server using `http.server` with `ThreadingMixIn` for concurrent request handling. All routing is handled by `DreamHubHandler` via `if-elif` chains in `do_GET` / `do_POST`.
+A single-file Python server using `http.server` with `ThreadingMixIn` for concurrent request handling. All routing is handled by `InspoVannaHandler` via `if-elif` chains in `do_GET` / `do_POST`.
 
 **Key global state:**
 - `BASE_DIR` — the `src/` directory (where server.py lives)
@@ -118,7 +118,7 @@ A single-file Python server using `http.server` with `ThreadingMixIn` for concur
 - **Volcano Engine AI MediaKit (AMK)** — video enhancement/upscaling
 - **ARK Files API** — file upload for multimodal document/video understanding in text chat
 
-### Frontend (`src/web/dreamhub.html`)
+### Frontend (`src/web/inspovanna.html`)
 
 A ~5379-line single-file SPA with vanilla JavaScript. No framework, no bundler. Uses Tailwind CSS via CDN.
 
@@ -151,9 +151,9 @@ A separate ES module (~2599 lines) loaded on demand. Built with Vue 3 (via esm.s
 - Workspace sync (`/api/storyboard/sync-folders`)
 - Auto-save with 500ms debounce
 
-**CSS:** `sb-dark.css` is dynamically injected at mount time alongside Vue Flow CDN stylesheets. `dreamhub.html` also contains light-theme overrides for `.sb-root`.
+**CSS:** `sb-dark.css` is dynamically injected at mount time alongside Vue Flow CDN stylesheets. `inspovanna.html` also contains light-theme overrides for `.sb-root`.
 
-**Mount/unmount:** exported as `{ mount, unmount }` — `dreamhub.html` calls `mount(el, state)` when navigating to the StoryBoard page and caches the module in `window.__storyboardMount`.
+**Mount/unmount:** exported as `{ mount, unmount }` — `inspovanna.html` calls `mount(el, state)` when navigating to the StoryBoard page and caches the module in `window.__storyboardMount`.
 
 ### Setup Scripts (`src/setup_*.py`)
 

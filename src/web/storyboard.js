@@ -1,5 +1,5 @@
 /**
- * DreamHub Storyboard — Multi-level creative planning
+ * InspoVanna Storyboard — Multi-level creative planning
  * Episode/Scene: card grid | Shot: Vue Flow canvas
  * Nodes: text, image, video, audio — each with upload + generate
  * Edges: click to edit content based on source node type
@@ -354,7 +354,7 @@ const StoryboardApp = {
                 const apiKey = window.state?.arkApiKey;
                 const model = window.state?.models?.text_default || 'doubao-seed-2-0-pro-260215';
                 if (!apiKey) throw new Error('请先在设置中配置 API Key');
-                const systemCtx = `你是 DreamHub StoryBoard 的 AI 助手，名叫"想象"，帮助用户进行剧本创作、分镜设计、提示词优化等。当被问及名字时，请回答你叫"想象"。当前项目: ${projectName.value || '未选择'}，当前层级: ${nav.level === 'episode' ? '剧集' : nav.level === 'scene' ? '场景' : '分镜'}${currentEpisode.value ? '，剧集: ' + currentEpisode.value.title : ''}${currentScene.value ? '，场景: ' + currentScene.value.title : ''}。请简洁专业地回答。`;
+                const systemCtx = `你是 InspoVanna StoryBoard 的 AI 助手，名叫"想象"，帮助用户进行剧本创作、分镜设计、提示词优化等。当被问及名字时，请回答你叫"想象"。当前项目: ${projectName.value || '未选择'}，当前层级: ${nav.level === 'episode' ? '剧集' : nav.level === 'scene' ? '场景' : '分镜'}${currentEpisode.value ? '，剧集: ' + currentEpisode.value.title : ''}${currentScene.value ? '，场景: ' + currentScene.value.title : ''}。请简洁专业地回答。`;
                 const apiMessages = [{ role: 'system', content: systemCtx }, ...assistantState.messages.slice(-20)];
                 const r = await fetch('/api/ark/chat', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1537,7 +1537,7 @@ const StoryboardApp = {
             generating: false,   // 生成剧本调用进行中
             screenplay: '', model: '', error: '',
         });
-        const SW_CHAT_SYSTEM = `你是 DreamHub StoryBoard 的资深编剧助手，专门帮助用户从一个模糊的故事点子出发，逐步打磨成一个结构完整、可拍摄的故事。
+        const SW_CHAT_SYSTEM = `你是 InspoVanna StoryBoard 的资深编剧助手，专门帮助用户从一个模糊的故事点子出发，逐步打磨成一个结构完整、可拍摄的故事。
 
 你的工作方式：
 1. 用户会先描述一个初步的故事想法。你要像专业编剧一样，通过提问把故事逐步具体化。

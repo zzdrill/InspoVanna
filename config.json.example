@@ -1,5 +1,5 @@
 {
-  "_comment": "DreamHub配置文件",
+  "_comment": "InspoVanna配置文件",
   "version": "1.0.0",
   "volcano": {
     "ark_api_key": "火山方舟API key",

@@ -1,4 +1,4 @@
-"""Create a DreamHub.app bundle on macOS with custom icon.
+"""Create a InspoVanna.app bundle on macOS with custom icon.
 
 Generates a proper .app bundle that can be double-clicked in Finder,
 placed in the Dock, or moved to /Applications.
@@ -14,12 +14,12 @@ PROJECT_ROOT = os.path.dirname(BASE_DIR)  # parent of src/
 
 
 def create_app_bundle():
-    """Create DreamHub.app with icon and launcher script."""
+    """Create InspoVanna.app with icon and launcher script."""
     if sys.platform != "darwin":
         print("[INFO] .app bundle creation is macOS-only.")
         return False
 
-    app_dir = os.path.join(PROJECT_ROOT, "DreamHub.app")
+    app_dir = os.path.join(PROJECT_ROOT, "InspoVanna.app")
     if os.path.exists(app_dir):
         return True  # Already exists
 
@@ -32,9 +32,9 @@ def create_app_bundle():
 
     # --- Info.plist ---
     plist = {
-        "CFBundleName": "DreamHub",
-        "CFBundleDisplayName": "DreamHub",
-        "CFBundleIdentifier": "com.dreamhub.app",
+        "CFBundleName": "InspoVanna",
+        "CFBundleDisplayName": "InspoVanna",
+        "CFBundleIdentifier": "com.inspovanna.app",
         "CFBundleVersion": "1.0.0",
         "CFBundleShortVersionString": "1.0.0",
         "CFBundlePackageType": "APPL",

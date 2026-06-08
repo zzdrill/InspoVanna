@@ -1,5 +1,5 @@
 """
-DreamHub - Lightweight Python server.
+InspoVanna - Local AI creative studio server.
 Provides:
   - Static file serving (HTML, CSS, JS)
   - POST /api/tos/upload  — upload image to TOS, return presigned URL
@@ -411,7 +411,7 @@ def _update_prompts_on_delete(full_path):
 
 
 # ---- HTTP Handler ----
-class DreamHubHandler(BaseHTTPRequestHandler):
+class InspoVannaHandler(BaseHTTPRequestHandler):
     """Serves static files and handles TOS API requests."""
     protocol_version = "HTTP/1.1"
 
@@ -546,7 +546,7 @@ class DreamHubHandler(BaseHTTPRequestHandler):
 
         # Default route -> serve HTML
         if path == "/" or path == "":
-            path = "/web/dreamhub.html"
+            path = "/web/inspovanna.html"
 
         # Serve favicon.ico from resource/
         if path == "/favicon.ico":
@@ -842,7 +842,7 @@ class DreamHubHandler(BaseHTTPRequestHandler):
             new_path = os.path.normpath(new_path)
             os.makedirs(new_path, exist_ok=True)
             # Test write permission
-            test_file = os.path.join(new_path, ".dreamhub_test")
+            test_file = os.path.join(new_path, ".inspovanna_test")
             with open(test_file, "w") as f:
                 f.write("test")
             os.remove(test_file)
@@ -1074,7 +1074,7 @@ class DreamHubHandler(BaseHTTPRequestHandler):
         try:
             # Download from URL
             print(f"[INFO] Downloading: {url[:80]}...")
-            req = urllib.request.Request(url, headers={"User-Agent": "DreamHub/1.0"})
+            req = urllib.request.Request(url, headers={"User-Agent": "InspoVanna/1.0"})
             with urllib.request.urlopen(req, timeout=30) as resp:
                 file_data = resp.read()
 
@@ -2191,9 +2191,9 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
 
 def main():
-    server = ThreadedHTTPServer(("127.0.0.1", PORT), DreamHubHandler)
+    server = ThreadedHTTPServer(("127.0.0.1", PORT), InspoVannaHandler)
     print(f"========================================")
-    print(f"  DreamHub Server")
+    print(f"  InspoVanna Server")
     print(f"========================================")
     print(f"  Local:     http://localhost:{PORT}")
     print(f"  TOS:       {TOS_BUCKET} ({TOS_REGION})")

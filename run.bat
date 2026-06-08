@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul 2>&1
-title DreamHub
+title InspoVanna
 
 if not exist ".venv\Scripts\python.exe" (
     echo ========================================
@@ -53,7 +53,7 @@ if not exist "src\resource\favicon.ico" (
 )
 
 REM ---- Create desktop shortcut (first run) ----
-if not exist "%USERPROFILE%\Desktop\DreamHub.lnk" (
+if not exist "%USERPROFILE%\Desktop\InspoVanna.lnk" (
     call .venv\Scripts\activate.bat
     echo   Creating desktop shortcut...
     python src\setup_shortcut.py

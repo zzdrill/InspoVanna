@@ -59,7 +59,7 @@ if [ ! -f "src/resource/favicon.ico" ]; then
 fi
 
 # ---- Create .app bundle on macOS (first run) ----
-if [ ! -d "DreamHub.app" ] && [ "$(uname)" = "Darwin" ]; then
+if [ ! -d "InspoVanna.app" ] && [ "$(uname)" = "Darwin" ]; then
     echo "  Creating app bundle..."
     python src/setup_app.py
 fi
