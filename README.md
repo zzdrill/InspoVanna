@@ -8,6 +8,14 @@
   <img src="docs/imgs/homepage.png" alt="InspoVanna 首页" width="720">
 </div>
 
+<div align="center">
+  <img src="docs/imgs/AIMakerHub.png" alt="AI Maker Hub 社区" width="360">
+</div>
+
+欢迎加入 **AI Maker Hub** 社区！AI Maker Hub 社区是由未来创意实验室发起的 AIGC 创意者交流社区。
+
+---
+
 ## ✨ Spotlight
 
 **StoryBoard — 一站式短剧创作平台**
