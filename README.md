@@ -62,7 +62,7 @@ chmod +x run.sh && ./run.sh
 - **后端**：Python 标准库 `http.server`，单文件，无框架
 - **前端**：原生 JavaScript + Tailwind CSS（CDN）
 - **StoryBoard**：Vue 3 + Vue Flow（均通过 esm.sh CDN 加载）
-- **依赖**：仅 `tos`（火山引擎对象存储）和 `opencv-python`（帧提取）
+- **依赖**：`tos`（火山引擎对象存储）、`opencv-python`（帧提取）、`Pillow`（图标生成）
 
 ## 安全说明
 

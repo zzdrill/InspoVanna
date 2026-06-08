@@ -2310,6 +2310,23 @@
 .sb-assistant-input input:focus {
     border-color: var(--accent-indigo);
 }
+.sb-assistant-input textarea {
+    flex: 1;
+    border: 1px solid var(--input-border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 13px;
+    background: var(--input-bg);
+    color: var(--text-primary);
+    outline: none;
+    resize: vertical;
+    min-height: 64px;
+    font-family: inherit;
+    line-height: 1.5;
+}
+.sb-assistant-input textarea:focus {
+    border-color: var(--accent-indigo);
+}
 .sb-assistant-input button {
     background: var(--accent-indigo);
     color: #fff;
@@ -2319,6 +2336,7 @@
     font-size: 13px;
     cursor: pointer;
     flex-shrink: 0;
+    align-self: flex-end;
     transition: opacity 0.1s;
 }
 .sb-assistant-input button:disabled {

@@ -13,10 +13,10 @@ DreamHub is a local AI creative studio — a Python HTTP server that serves a si
 pip install -r requirements.txt
 
 # Start the server (port 8765)
-python server.py
+python src/server.py
 
 # Alternative: use a custom config file
-python server.py --config path/to/config.json
+python src/server.py --config path/to/config.json
 
 # Cross-platform startup scripts (auto-create venv, install deps, launch browser)
 run.bat     # Windows
@@ -31,34 +31,42 @@ There is no test framework, linter, or build step.
 
 ```
 DreamHub/
-├── server.py               # Single-file Python backend (2197 lines)
-├── config.json             # Secrets & settings (never commit)
-├── config.json.example     # Template
-├── requirements.txt        # tos, opencv-python
-├── run.bat / run.sh        # Cross-platform launchers
-├── web/
-│   ├── dreamhub.html       # Main SPA (~5379 lines, vanilla JS + Tailwind CDN)
-│   ├── storyboard.js       # StoryBoard module (2599 lines, Vue 3 + Vue Flow)
-│   ├── sb-dark.css         # StoryBoard stylesheet (2330 lines)
-│   ├── sb-test.html        # Vue Flow integration test page
-│   └── sb-test2.html       # Vue Flow step-by-step test page
-└── resource/
-    ├── tips.json           # In-app tip content
-    ├── Elephant_logo.png   # App mascot assets
-    ├── Sit_elephant.png
-    ├── Stand_elephant.png
-    ├── Run_elephant.png
-    └── Contributor/        # Contributor avatars
+├── src/
+│   ├── server.py               # Single-file Python backend (2197 lines)
+│   ├── setup_icon.py           # Generate favicon.ico from logo PNG
+│   ├── setup_shortcut.py       # Create Windows desktop shortcut with icon
+│   ├── setup_app.py            # Create macOS .app bundle with icon
+│   ├── web/
+│   │   ├── dreamhub.html       # Main SPA (~5379 lines, vanilla JS + Tailwind CDN)
+│   │   ├── storyboard.js       # StoryBoard module (2599 lines, Vue 3 + Vue Flow)
+│   │   ├── sb-dark.css         # StoryBoard stylesheet (2330 lines)
+│   │   ├── sb-test.html        # Vue Flow integration test page
+│   │   └── sb-test2.html       # Vue Flow step-by-step test page
+│   └── resource/
+│       ├── tips.json           # In-app tip content
+│       ├── Elephant_logo.png   # App mascot assets
+│       ├── Sit_elephant.png
+│       ├── Stand_elephant.png
+│       ├── Run_elephant.png
+│       └── Contributor/        # Contributor avatars
+├── config.json                 # Secrets & settings (never commit)
+├── config.json.example         # Template
+├── requirements.txt            # tos, opencv-python, Pillow
+├── run.bat / run.sh            # Cross-platform launchers
+├── CLAUDE.md
+└── README.md
 ```
 
 ## Architecture
 
-### Backend (`server.py`)
+### Backend (`src/server.py`)
 
 A single-file Python server using `http.server` with `ThreadingMixIn` for concurrent request handling. All routing is handled by `DreamHubHandler` via `if-elif` chains in `do_GET` / `do_POST`.
 
 **Key global state:**
-- `_config` — loaded from `config.json` at startup, mutable (workspace path can be updated at runtime)
+- `BASE_DIR` — the `src/` directory (where server.py lives)
+- `PROJECT_ROOT` — the project root directory (parent of `src/`)
+- `_config` — loaded from `config.json` at startup (resolved from `PROJECT_ROOT`), mutable (workspace path can be updated at runtime)
 - `ARK_API_KEY` / `ARK_BASE` — ARK API credentials and base URL (`https://ark.cn-beijing.volces.com/api/v3`)
 - `AMK_API_KEY` — AI MediaKit credentials for video enhancement
 - `tos_client` — Volcano Engine TOS (object storage) client, initialized once
@@ -78,7 +86,8 @@ A single-file Python server using `http.server` with `ThreadingMixIn` for concur
 - `/api/storyboard` — read storyboard.json for a project
 - `/api/contributors` — list contributor entries from `resource/Contributor/`
 - `/workspace/*` — static file serving from workspace directory
-- `/web/*`, `/resource/*` — static file serving from project directory
+- `/web/*`, `/resource/*` — static file serving from `src/` directory
+- `/favicon.ico` — serves `src/resource/favicon.ico`
 
 **POST endpoints:**
 - `/api/config` — import/update config (hot-reload)
@@ -109,7 +118,7 @@ A single-file Python server using `http.server` with `ThreadingMixIn` for concur
 - **Volcano Engine AI MediaKit (AMK)** — video enhancement/upscaling
 - **ARK Files API** — file upload for multimodal document/video understanding in text chat
 
-### Frontend (`web/dreamhub.html`)
+### Frontend (`src/web/dreamhub.html`)
 
 A ~5379-line single-file SPA with vanilla JavaScript. No framework, no bundler. Uses Tailwind CSS via CDN.
 
@@ -125,7 +134,7 @@ A ~5379-line single-file SPA with vanilla JavaScript. No framework, no bundler. 
 - Prompts auto-save to workspace metadata files
 - StoryBoard module is lazy-loaded as a separate ES module (`/web/storyboard.js`) via `window.__loadStoryboard()`
 
-### StoryBoard Module (`web/storyboard.js` + `web/sb-dark.css`)
+### StoryBoard Module (`src/web/storyboard.js` + `src/web/sb-dark.css`)
 
 A separate ES module (~2599 lines) loaded on demand. Built with Vue 3 (via esm.sh CDN) and Vue Flow for the shot canvas.
 
@@ -146,9 +155,15 @@ A separate ES module (~2599 lines) loaded on demand. Built with Vue 3 (via esm.s
 
 **Mount/unmount:** exported as `{ mount, unmount }` — `dreamhub.html` calls `mount(el, state)` when navigating to the StoryBoard page and caches the module in `window.__storyboardMount`.
 
+### Setup Scripts (`src/setup_*.py`)
+
+- **`setup_icon.py`** — Converts `Run_elephant.png` to multi-resolution `favicon.ico` using Pillow. Called by launch scripts on first run.
+- **`setup_shortcut.py`** — Creates a Windows desktop shortcut (`.lnk`) with the custom icon via PowerShell. Called by `run.bat` on first run.
+- **`setup_app.py`** — Creates a macOS `.app` bundle with icon via `iconutil`. Called by `run.sh` on first run on macOS.
+
 ### Configuration (`config.json`)
 
-Must be created from `config.json.example`. Contains:
+Must be created from `config.json.example`. Located at project root. Contains:
 - `volcano` — API credentials: `ark_api_key`, `tos_ak`, `tos_sk`, `tos_region`, `tos_bucket`, `ai_mediakit_api`
 - `models` — default and available model IDs for text/image/video (e.g. `text_default`, `video_default`)
 - `workspace.path` — absolute path to local workspace directory
@@ -161,7 +176,7 @@ The workspace is a local directory (configured in `config.json`) where generated
 
 ## Dependencies
 
-Only two Python packages: `tos` (Volcano Engine TOS client) and `opencv-python` (video frame extraction). The server uses Python's standard library for everything else (HTTP server, threading, JSON, file I/O).
+Python packages: `tos` (Volcano Engine TOS client), `opencv-python` (video frame extraction), `Pillow` (icon generation). The server uses Python's standard library for everything else (HTTP server, threading, JSON, file I/O).
 
 Frontend dependencies are all CDN-loaded: Tailwind CSS, Vue 3, htm, Vue Flow (core, controls, background, minimap).
 
@@ -174,3 +189,4 @@ Frontend dependencies are all CDN-loaded: Tailwind CSS, Vue 3, htm, Vue Flow (co
 - Presigned URLs expire after 2 hours (`PRESIGN_EXPIRES = 7200`)
 - Video generation uses ARK Content Generation API (`/api/v3/contents/generations/tasks`); text chat uses Chat Completions API (`/api/v3/chat/completions`)
 - StoryBoard data is persisted as `storyboard.json` under `<workspace>/<project>/Storyboard/`
+- `config.json` is at project root; `server.py` resolves it via `PROJECT_ROOT` (parent of `src/`)

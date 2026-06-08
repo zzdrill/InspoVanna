@@ -51,6 +51,19 @@ if [ ! -f ".venv/bin/python" ]; then
     echo ""
 fi
 
+# ---- Generate app icon (first run) ----
+source .venv/bin/activate
+if [ ! -f "src/resource/favicon.ico" ]; then
+    echo "  Generating app icon..."
+    python src/setup_icon.py
+fi
+
+# ---- Create .app bundle on macOS (first run) ----
+if [ ! -d "DreamHub.app" ] && [ "$(uname)" = "Darwin" ]; then
+    echo "  Creating app bundle..."
+    python src/setup_app.py
+fi
+
 # ---- Start server ----
 source .venv/bin/activate
-python server.py
+python src/server.py

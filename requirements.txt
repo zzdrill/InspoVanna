@@ -1,2 +1,3 @@
 tos
 opencv-python
+Pillow

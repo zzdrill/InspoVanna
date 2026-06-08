@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>SB Test</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@vue-flow/core@1.41.5/dist/style.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@vue-flow/core@1.41.5/dist/theme-default.css">
+</head>
+<body style="margin:0">
+<div id="app" style="width:100vw;height:100vh"></div>
+<script type="module">
+// Step 1: Test Vue alone
+const { createApp, ref, h } = await import('https://esm.sh/vue@3.5.13');
+document.body.innerHTML += '<div style="padding:20px;color:green">Step 1 OK: Vue loaded</div>';
+
+// Step 2: Test Vue Flow
+const { VueFlow } = await import('https://esm.sh/@vue-flow/core@1.41.5?deps=vue@3.5.13');
+document.body.innerHTML += '<div style="padding:20px;color:green">Step 2 OK: VueFlow loaded</div>';
+
+// Step 3: Create a simple Vue app with VueFlow
+const app = createApp({
+    components: { VueFlow },
+    setup() {
+        const nodes = ref([
+            { id: '1', position: { x: 200, y: 200 }, data: { label: 'Test Node' } }
+        ]);
+        const edges = ref([]);
+        return { nodes, edges };
+    },
+    template: `
+        <div style="width:100%;height:100%;border:3px solid red">
+            <span>OUTER DIV</span>
+            <VueFlow :nodes="nodes" :edges="edges" :fit-view-on-init="true" style="width:100%;height:100%">
+            </VueFlow>
+        </div>
+    `
+});
+
+const el = document.createElement('div');
+el.style.cssText = 'width:100vw;height:100vh;border:2px solid blue';
+document.body.appendChild(el);
+app.mount(el);
+document.body.innerHTML += '<div style="padding:20px;color:green">Step 3 OK: App mounted</div>';
+</script>
+</body></html>

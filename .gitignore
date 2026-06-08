@@ -26,3 +26,9 @@ desktop.ini
 # 临时文件
 *.tmp
 *.temp
+
+# Generated icons and app bundle
+src/resource/favicon.ico
+src/resource/AppIcon.iconset/
+src/resource/AppIcon.icns
+DreamHub.app/

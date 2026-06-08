@@ -45,6 +45,20 @@ if not exist ".venv\Scripts\python.exe" (
     echo.
 )
 
+REM ---- Generate app icon (first run) ----
+if not exist "src\resource\favicon.ico" (
+    call .venv\Scripts\activate.bat
+    echo   Generating app icon...
+    python src\setup_icon.py
+)
+
+REM ---- Create desktop shortcut (first run) ----
+if not exist "%USERPROFILE%\Desktop\DreamHub.lnk" (
+    call .venv\Scripts\activate.bat
+    echo   Creating desktop shortcut...
+    python src\setup_shortcut.py
+)
+
 call .venv\Scripts\activate.bat
-python server.py
+python src\server.py
 pause

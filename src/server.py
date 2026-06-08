@@ -36,6 +36,7 @@ except ImportError:
 # ---- Configuration ----
 PORT = 8765
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(BASE_DIR)  # parent of src/
 TOS_UPLOAD_PREFIX = "temp/aigc"
 PRESIGN_EXPIRES = 7200  # 2 hours
 TOS_CACHE_TTL = 7000   # slightly less than presign expiry
@@ -49,7 +50,7 @@ for i, arg in enumerate(sys.argv[1:]):
     if arg.startswith("--config="):
         _config_arg = arg.split("=", 1)[1]
         break
-CONFIG_PATH = os.path.join(BASE_DIR, _config_arg) if _config_arg else os.path.join(BASE_DIR, "config.json")
+CONFIG_PATH = os.path.join(PROJECT_ROOT, _config_arg) if _config_arg else os.path.join(PROJECT_ROOT, "config.json")
 
 
 def load_config():
@@ -79,7 +80,7 @@ def get_workspace_path():
     """Return the configured workspace directory path, creating it if needed."""
     path = _config.get("workspace", {}).get("path", "")
     if not path:
-        path = os.path.join(BASE_DIR, "workspace")
+        path = os.path.join(PROJECT_ROOT, "workspace")
     path = os.path.normpath(path)
     os.makedirs(path, exist_ok=True)
     return path
@@ -547,8 +548,27 @@ class DreamHubHandler(BaseHTTPRequestHandler):
         if path == "/" or path == "":
             path = "/web/dreamhub.html"
 
+        # Serve favicon.ico from resource/
+        if path == "/favicon.ico":
+            favicon_path = os.path.join(BASE_DIR, "resource", "favicon.ico")
+            if os.path.isfile(favicon_path):
+                with open(favicon_path, "rb") as f:
+                    data = f.read()
+                self.send_response(200)
+                self.send_header("Content-Type", "image/x-icon")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "public, max-age=86400")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.wfile.write(data)
+                return
+            # Fallback if favicon.ico hasn't been generated yet
+            self.send_response(204)
+            self.end_headers()
+            return
+
         # Ignore common browser auto-requests
-        if path in ("/favicon.ico", "/robots.txt", "/sitemap.xml"):
+        if path in ("/robots.txt", "/sitemap.xml"):
             self.send_response(204)
             self.end_headers()
             return

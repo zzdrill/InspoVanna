@@ -343,6 +343,7 @@ const StoryboardApp = {
         }
         function openAssistant() { assistantState.show = true; assistantState.input = ''; }
         function closeAssistant() { assistantState.show = false; }
+        function clearAssistant() { if (assistantState.messages.length && !confirm('确定清空聊天记录？')) return; assistantState.messages = []; }
         async function sendAssistantMessage() {
             const msg = assistantState.input.trim();
             if (!msg || assistantState.loading) return;
@@ -353,7 +354,7 @@ const StoryboardApp = {
                 const apiKey = window.state?.arkApiKey;
                 const model = window.state?.models?.text_default || 'doubao-seed-2-0-pro-260215';
                 if (!apiKey) throw new Error('请先在设置中配置 API Key');
-                const systemCtx = `你是 DreamHub StoryBoard 的 AI 助手，帮助用户进行剧本创作、分镜设计、提示词优化等。当前项目: ${projectName.value || '未选择'}，当前层级: ${nav.level === 'episode' ? '剧集' : nav.level === 'scene' ? '场景' : '分镜'}${currentEpisode.value ? '，剧集: ' + currentEpisode.value.title : ''}${currentScene.value ? '，场景: ' + currentScene.value.title : ''}。请简洁专业地回答。`;
+                const systemCtx = `你是 DreamHub StoryBoard 的 AI 助手，名叫"想象"，帮助用户进行剧本创作、分镜设计、提示词优化等。当被问及名字时，请回答你叫"想象"。当前项目: ${projectName.value || '未选择'}，当前层级: ${nav.level === 'episode' ? '剧集' : nav.level === 'scene' ? '场景' : '分镜'}${currentEpisode.value ? '，剧集: ' + currentEpisode.value.title : ''}${currentScene.value ? '，场景: ' + currentScene.value.title : ''}。请简洁专业地回答。`;
                 const apiMessages = [{ role: 'system', content: systemCtx }, ...assistantState.messages.slice(-20)];
                 const r = await fetch('/api/ark/chat', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1528,6 +1529,149 @@ const StoryboardApp = {
         }
         function closeScriptImport() { scriptState.show = false; }
 
+        // --- Interactive Script Writing (交互式剧本创作) ---
+        const screenwriterState = reactive({
+            show: false, step: 'chat',  // 'chat' | 'preview'
+            messages: [], input: '', loading: false,
+            ready: false,        // LLM 已输出 [READY_TO_WRITE]
+            generating: false,   // 生成剧本调用进行中
+            screenplay: '', model: '', error: '',
+        });
+        const SW_CHAT_SYSTEM = `你是 DreamHub StoryBoard 的资深编剧助手，专门帮助用户从一个模糊的故事点子出发，逐步打磨成一个结构完整、可拍摄的故事。
+
+你的工作方式：
+1. 用户会先描述一个初步的故事想法。你要像专业编剧一样，通过提问把故事逐步具体化。
+2. 每轮只问 1-2 个最关键的问题，不要一次抛出一长串问题，保持对话自然、循序渐进。
+3. 你需要逐步澄清并确认以下要素（不必严格按顺序，缺什么补什么）：
+   - 题材/类型（如：科幻、悬疑、爱情、奇幻、现实主义…）
+   - 主角（身份、性格、目标、动机）
+   - 重要配角与人物关系
+   - 背景设定（时代、地点、世界观）
+   - 核心冲突（主角面对的核心障碍或矛盾）
+   - 情节走向（开端、发展、高潮的大致脉络）
+   - 结局（基调与走向）
+   - 风格基调（如：轻松幽默、黑暗沉重、热血、温情…）
+4. 在提问的同时，适当复述并总结你已经掌握的设定，帮助用户确认。
+5. 当你判断以上要素已经足够清晰、足以写出一个完整故事时，在你这一轮回复的【最后单独一行】输出标记：
+[READY_TO_WRITE]
+   —— 这个标记是给程序读取的信号，表示"可以开始写剧本了"。即使输出了这个标记，你仍要正常地继续对话、邀请用户补充或直接生成剧本，不要停止交流。
+6. 不要在信息明显不足时过早输出该标记。一旦输出过一次，只要后续信息仍然充分，可在后续回复中继续输出。
+
+请用中文、简洁专业地交流。`;
+        const SW_WRITE_SYSTEM = `你是一名专业编剧。下面是用户与编剧助手之间关于一个故事的完整讨论。请你基于这段讨论中确定的所有设定，将其改写成一部结构规范、可用于后续拆分剧集/场景的中文剧本。
+
+输出要求（严格遵守）：
+1. 直接输出剧本正文，不要任何解释、前言、客套话或 Markdown 代码块包裹。
+2. 用清晰的场景结构组织全文。每个场景以场景标题行开头，格式为：
+   场景N　[内/外景]　地点　—　时间（日/夜）
+   例如：场景1　内景　咖啡馆　—　日
+3. 每个场景标题之后，先写一段【场景描述】，交代环境、氛围与正在发生的动作。
+4. 人物登场时用全名，对白格式为：
+   人物名：（可选的表演提示）对白内容
+5. 重要的动作、转场、情绪变化用单独的动作行描述。
+6. 按故事的开端、发展、高潮、结局合理划分为多个场景，使剧情完整、节奏清楚。
+7. 全文使用中文，保持专业剧本的书面语风格。
+
+请直接开始输出剧本。`;
+        function openScreenwriter() {
+            Object.assign(screenwriterState, {
+                show: true, step: 'chat', messages: [], input: '',
+                loading: false, ready: false, generating: false,
+                screenplay: '', error: '', model: textModels[0] || '',
+            });
+        }
+        function closeScreenwriter() { screenwriterState.show = false; }
+        async function sendScreenwriterMessage() {
+            const msg = screenwriterState.input.trim();
+            if (!msg || screenwriterState.loading) return;
+            screenwriterState.messages.push({ role: 'user', content: msg });
+            screenwriterState.input = '';
+            screenwriterState.loading = true;
+            try {
+                const apiKey = window.state?.arkApiKey;
+                if (!apiKey) throw new Error('请先在设置中配置 API Key');
+                const model = screenwriterState.model || textModels[0] || 'doubao-seed-2-0-pro-260215';
+                const apiMessages = [{ role: 'system', content: SW_CHAT_SYSTEM }, ...screenwriterState.messages.slice(-30)];
+                const r = await fetch('/api/ark/chat', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model, messages: apiMessages })
+                });
+                const data = await r.json();
+                if (data.error) throw new Error(data.error);
+                let reply = data.choices?.[0]?.message?.content || data.output?.[0]?.content?.[0]?.text || '（无回复）';
+                if (reply.includes('[READY_TO_WRITE]')) {
+                    screenwriterState.ready = true;
+                    reply = reply.split('\n').filter(l => l.trim() !== '[READY_TO_WRITE]').join('\n');
+                    reply = reply.replace(/\[READY_TO_WRITE\]/g, '').trim();
+                }
+                screenwriterState.messages.push({ role: 'assistant', content: reply || '（无回复）' });
+            } catch (e) {
+                screenwriterState.messages.push({ role: 'assistant', content: '❌ ' + e.message });
+            } finally { screenwriterState.loading = false; }
+        }
+        async function generateScreenplay() {
+            if (screenwriterState.generating) return;
+            if (!screenwriterState.messages.some(m => m.role === 'user')) {
+                screenwriterState.error = '请先与编剧助手讨论你的故事'; return;
+            }
+            screenwriterState.generating = true;
+            screenwriterState.error = '';
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 300000);
+            try {
+                const apiKey = window.state?.arkApiKey;
+                if (!apiKey) throw new Error('请先在设置中配置 API Key');
+                const model = screenwriterState.model || textModels[0] || 'doubao-seed-2-0-pro-260215';
+                const transcript = screenwriterState.messages
+                    .map(m => (m.role === 'user' ? '用户' : '编剧助手') + '：' + m.content)
+                    .join('\n\n');
+                const apiMessages = [
+                    { role: 'system', content: SW_WRITE_SYSTEM },
+                    { role: 'user', content: '以下是完整讨论：\n\n' + transcript + '\n\n请基于以上讨论输出完整剧本。' },
+                ];
+                const r = await fetch('/api/ark/chat', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model, messages: apiMessages }), signal: controller.signal
+                });
+                const data = await r.json();
+                if (data.error) throw new Error(data.error);
+                const sp = data.choices?.[0]?.message?.content || data.output?.[0]?.content?.[0]?.text || '';
+                if (!sp.trim()) throw new Error('生成结果为空，请重试');
+                screenwriterState.screenplay = sp.trim();
+                screenwriterState.step = 'preview';
+            } catch (e) {
+                screenwriterState.error = e.name === 'AbortError' ? '❌ 生成超时（5分钟），请重试' : '❌ ' + e.message;
+            } finally { clearTimeout(timeoutId); screenwriterState.generating = false; }
+        }
+        function useScreenplayForImport() {
+            const text = (screenwriterState.screenplay || '').trim();
+            if (!text) return;
+            if (!confirm('将生成的剧本载入"剧本导入"进行拆分？')) return;
+            closeScreenwriter();
+            openScriptImport('episodes');
+            scriptState.scriptText = text;
+            scriptState.inputTab = 'text';
+        }
+        async function saveScreenplayToWorkspace() {
+            const text = (screenwriterState.screenplay || '').trim();
+            if (!text) return;
+            if (!projectName.value) { window.showToast && window.showToast('请先选择项目', 'error'); return; }
+            const ts = new Date().toISOString().replace(/[:.]/g, '-');
+            const filename = '剧本_' + ts + '.txt';
+            const subdir = projectName.value + '/Text';
+            try {
+                await ensureDir(subdir);
+                const r = await fetch('/api/workspace/save-text', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: text, filename, subdir })
+                });
+                if (!r.ok) throw new Error('保存失败');
+                window.showToast && window.showToast('已保存到 ' + subdir + '/' + filename, 'success');
+            } catch (e) {
+                window.showToast && window.showToast('保存失败: ' + e.message, 'error');
+            }
+        }
+
         async function startScriptAnalysis() {
             const text = scriptState.scriptText.trim();
             if (!text) { scriptState.error = '请输入或上传剧本内容'; return; }
@@ -1818,7 +1962,7 @@ const StoryboardApp = {
             sbData, projectName, projects, nav, editTarget, tagsText, optimizeState,
             currentEpisode, currentScene, hasProject,
             treeVisible, treeExpandedIds, assistantState,
-            navigate, drillDown, treeNav, toggleTreeExpand, openAssistant, closeAssistant, sendAssistantMessage,
+            navigate, drillDown, treeNav, toggleTreeExpand, openAssistant, closeAssistant, clearAssistant, sendAssistantMessage,
             addEntity, deleteEntity, startEdit, closeEdit,
             markDirty, updateTags, selectProject, autoLayout, syncWorkspace, generateFromShot, uploadAsset, uploadLocal,
             optimizePrompt, acceptOptimize, rejectOptimize, openPreview, closePreview, previewState, selectHistory,
@@ -1832,6 +1976,7 @@ const StoryboardApp = {
             toggleBatchMode, toggleSelectLibItem, batchDeleteLibItems,
             scriptState, openScriptImport, closeScriptImport, startScriptAnalysis, generateSelectedImages, confirmImport,
             onScriptFileInput, onScriptWorkspacePick, textModels,
+            screenwriterState, openScreenwriter, closeScreenwriter, sendScreenwriterMessage, generateScreenplay, useScreenplayForImport, saveScreenplayToWorkspace,
             mentionState, getConnectedRefs, getCombinedPrompt, showMentionPopup, hideMentionPopup, insertMentionRef,
             globalSettings, openGlobalSettings, closeGlobalSettings, applyGlobalImageSettings, applyGlobalVideoSettings,
         };
@@ -1863,6 +2008,7 @@ const StoryboardApp = {
             tbBtns.push(html`<span class="sb-tb-sep"></span>`);
             if (this.nav.level === 'episode') {
                 tbBtns.push(html`<button onClick=${() => this.openScriptImport('episodes')} class="sb-tb-btn">\u{1F4C4} 剧本导入</button>`);
+                tbBtns.push(html`<button onClick=${this.openScreenwriter} class="sb-tb-btn">\u{270D} 交互式创作</button>`);
             }
             if (this.nav.level === 'scene' && this.currentEpisode) {
                 tbBtns.push(html`<button onClick=${() => this.openScriptImport('scenes')} class="sb-tb-btn">\u{1F4C4} 拆分场景</button>`);
@@ -2228,11 +2374,14 @@ const StoryboardApp = {
                 ${this.assistantState.show ? html`
                     <div class="sb-assistant-panel">
                         <div class="sb-assistant-header">
-                            <span>🐘 AI 助手</span>
-                            <button class="sb-assistant-close" onClick=${this.closeAssistant}>✕</button>
+                            <span>🐘 想象</span>
+                            <span style="display:flex;gap:2px;align-items:center">
+                                <button class="sb-assistant-close" title="清空聊天记录" onClick=${this.clearAssistant}>\u{1F5D1}</button>
+                                <button class="sb-assistant-close" title="关闭" onClick=${this.closeAssistant}>✕</button>
+                            </span>
                         </div>
                         <div class="sb-assistant-messages">
-                            ${this.assistantState.messages.length === 0 ? html`<div class="sb-assistant-hint">你好！我是 StoryBoard AI 助手，可以帮你优化提示词、分析剧本、设计分镜等。有什么可以帮你的？</div>` : null}
+                            ${this.assistantState.messages.length === 0 ? html`<div class="sb-assistant-hint">你好！我是Story Board的AI助手，我叫想象，可以帮你优化提示词、分析剧本、设计分镜等。有什么可以帮你的？</div>` : null}
                             ${this.assistantState.messages.map((m, i) => html`
                                 <div key=${i} class=${m.role === 'user' ? 'sb-assistant-msg user' : 'sb-assistant-msg bot'}>${m.content}</div>
                             `)}
@@ -2535,6 +2684,57 @@ const StoryboardApp = {
                                             <button class="sb-imp-primary" onClick=${this.confirmImport}>确认导入</button>
                                         </div>
                                     `}
+                                ` : null}
+                            </div>
+                        </div>
+                    </div>
+                ` : null}
+                ${this.screenwriterState.show ? html`
+                    <div class="sb-imp-overlay" onClick=${this.closeScreenwriter}>
+                        <div class="sb-imp-dialog" onClick=${e => e.stopPropagation()}>
+                            <div class="sb-imp-header">
+                                <h3>${this.screenwriterState.step === 'preview' ? '交互式剧本创作 — 剧本预览' : '交互式剧本创作'}</h3>
+                                <button onClick=${this.closeScreenwriter} class="sb-del-btn">✕</button>
+                            </div>
+                            <div class="sb-imp-body">
+                                ${this.screenwriterState.step === 'chat' ? html`
+                                    <div class="sb-assistant-messages" style="min-height:240px;max-height:42vh">
+                                        ${this.screenwriterState.messages.length === 0 ? html`<div class="sb-assistant-hint">描述你的故事点子，我会像编剧一样和你一起把它打磨成完整剧本。准备好后点击"生成剧本"。</div>` : null}
+                                        ${this.screenwriterState.messages.map((m, i) => html`
+                                            <div key=${i} class=${m.role === 'user' ? 'sb-assistant-msg user' : 'sb-assistant-msg bot'}>${m.content}</div>
+                                        `)}
+                                        ${this.screenwriterState.loading ? html`<div class="sb-assistant-msg bot">思考中...</div>` : null}
+                                    </div>
+                                    ${this.screenwriterState.ready ? html`<p class="sb-imp-progress">\u{2705} 信息已基本完整，可以点击"生成剧本"了（也可继续补充）。</p>` : null}
+                                    ${this.textModels.length > 1 ? html`
+                                        <div class="sb-imp-section">
+                                            <label>模型</label>
+                                            <select class="sb-imp-select" value=${this.screenwriterState.model} onChange=${e => { this.screenwriterState.model = e.target.value; }}>
+                                                ${this.textModels.map(m => html`<option value=${m} key=${m}>${m}</option>`)}
+                                            </select>
+                                        </div>
+                                    ` : null}
+                                    ${this.screenwriterState.error ? html`<p class="sb-imp-error">${this.screenwriterState.error}</p>` : null}
+                                    <div class="sb-assistant-input">
+                                        <textarea rows="3" value=${this.screenwriterState.input} onInput=${e => { this.screenwriterState.input = e.target.value; }} onKeydown=${e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.sendScreenwriterMessage(); } }} placeholder="描述你的故事或回答问题...（Enter 发送，Shift+Enter 换行）"></textarea>
+                                        <button onClick=${this.sendScreenwriterMessage} disabled=${this.screenwriterState.loading || !this.screenwriterState.input.trim()}>发送</button>
+                                    </div>
+                                    <div class="sb-imp-actions" style="margin-top:12px">
+                                        <button class=${this.screenwriterState.ready ? 'sb-imp-primary' : 'sb-imp-btn'} onClick=${this.generateScreenplay} disabled=${this.screenwriterState.generating}>${this.screenwriterState.generating ? '正在生成剧本…' : '\u{1F3AC} 生成剧本'}</button>
+                                    </div>
+                                ` : null}
+                                ${this.screenwriterState.step === 'preview' ? html`
+                                    <div class="sb-imp-section">
+                                        <label>生成的剧本（可编辑）</label>
+                                        <textarea class="sb-imp-textarea" value=${this.screenwriterState.screenplay} onInput=${e => { this.screenwriterState.screenplay = e.target.value; }} rows="16" placeholder="剧本内容..."></textarea>
+                                    </div>
+                                    ${this.screenwriterState.error ? html`<p class="sb-imp-error">${this.screenwriterState.error}</p>` : null}
+                                    <div class="sb-imp-actions" style="margin-top:12px">
+                                        <button class="sb-imp-btn" onClick=${() => { this.screenwriterState.step = 'chat'; }}>← 返回对话</button>
+                                        <button class="sb-imp-btn" onClick=${this.generateScreenplay} disabled=${this.screenwriterState.generating}>${this.screenwriterState.generating ? '重新生成中…' : '\u{1F501} 重新生成'}</button>
+                                        <button class="sb-imp-btn" onClick=${this.saveScreenplayToWorkspace}>\u{1F4BE} 保存到工作空间</button>
+                                        <button class="sb-imp-primary" onClick=${this.useScreenplayForImport}>用于剧本导入 →</button>
+                                    </div>
                                 ` : null}
                             </div>
                         </div>

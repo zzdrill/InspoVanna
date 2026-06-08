@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>SB Test</title></head>
+<body style="margin:0">
+<div id="app" style="width:100vw;height:100vh"></div>
+<script type="module">
+import { createApp, ref } from 'https://esm.sh/vue@3.5.13';
+import { VueFlow } from 'https://esm.sh/@vue-flow/core@1.41.5?deps=vue@3.5.13';
+
+console.log('Vue loaded:', !!createApp);
+console.log('VueFlow loaded:', !!VueFlow);
+
+const app = createApp({
+    components: { VueFlow },
+    setup() {
+        const nodes = ref([
+            { id: '1', position: { x: 100, y: 100 }, data: { label: 'Hello' } }
+        ]);
+        const edges = ref([]);
+        return { nodes, edges };
+    },
+    template: `<div style="width:100%;height:100vh"><VueFlow :nodes="nodes" :edges="edges" :fit-view-on-init="true"><div>Canvas loaded!</div></VueFlow></div>`
+});
+app.mount('#app');
+console.log('App mounted');
+</script>
+</body></html>
