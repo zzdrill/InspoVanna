@@ -286,6 +286,7 @@ const StoryboardApp = {
                 ref: n.data?.ref, title: sh?.title || '', summary: displaySummary, nodeType: nt,
                 duration: nt === 'video' ? p.video?.duration : nt === 'audio' ? p.audio?.duration : null,
                 generating: n.data?.generating || false, genProgress: n.data?.genProgress || '',
+                extracting: n.data?.extracting || false,
                 history: (nt === 'image' ? p.image?.history : nt === 'video' ? p.video?.history : nt === 'audio' ? p.audio?.history : []) || [],
             };
             if (nt === 'image' && p.image?.workspaceAsset) nodeData.assetUrl = '/workspace/' + p.image.workspaceAsset;
@@ -1020,7 +1021,7 @@ const StoryboardApp = {
             const sanitize = (s, fb) => (s || fb).replace(/[\\/:*?"<>|]/g, '').trim() || fb;
             const ep = currentEpisode.value;
             const outputDir = projectName.value + '/Storyboard/' + sanitize(ep?.title, nav.episodeId) + '/' + sanitize(sc?.title, nav.sceneId);
-            vfNode.data = { ...vfNode.data, extracting: true };
+            vfNode.data.extracting = true;
             syncNodeToFlow(nodeId);
             try {
                 const resp = await fetch('/api/workspace/extract-frames', {
@@ -1030,6 +1031,7 @@ const StoryboardApp = {
                 });
                 const data = await resp.json();
                 if (data.error) throw new Error(data.error);
+                if (!data.first && !data.last) throw new Error('未能提取到帧图片，请确认视频文件有效');
                 const basePos = { ...vfNode.position };
                 let idx = 0;
                 if (data.first) {
@@ -1042,7 +1044,7 @@ const StoryboardApp = {
             } catch (e) {
                 window.showToast && window.showToast('导出帧失败: ' + e.message, 'error');
             } finally {
-                vfNode.data = { ...vfNode.data, extracting: false };
+                vfNode.data.extracting = false;
                 syncNodeToFlow(nodeId);
             }
         }
