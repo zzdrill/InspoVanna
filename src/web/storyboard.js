@@ -132,7 +132,7 @@ const TextShotNode = {
         const d = this.data || {};
         const hasConn = this.act.hasOutput(this.id);
         return html`<div class="sb-node sb-node-shot sb-node-text">
-            <button class="sb-node-close" onClick=${e => { e.stopPropagation(); this.act.del(this.id); }}>✕</button>
+            <button class="sb-node-close" title="删除节点" onClick=${e => { e.stopPropagation(); this.act.del(this.id); }}>✕</button>
             <div class="sb-node-header"><span class="sb-node-icon">\u{2728}</span><span class="sb-node-title">${d.title || '(未命名)'}</span></div>
             ${d.summary ? html`<div class="sb-node-summary">${d.summary}</div>` : null}
             ${d.assetUrl ? html`<div class="sb-node-thumb"><div style="padding:6px;font-size:11px;color:var(--text-muted)">\u{1F4C4} ${d.assetUrl.split('/').pop()}</div></div>` : null}
@@ -155,7 +155,7 @@ const ImageShotNode = {
         const d = this.data || {};
         const hist = d.history || [];
         return html`<div class="sb-node sb-node-shot sb-node-image">
-            <button class="sb-node-close" onClick=${e => { e.stopPropagation(); this.act.del(this.id); }}>✕</button>
+            <button class="sb-node-close" title="删除节点" onClick=${e => { e.stopPropagation(); this.act.del(this.id); }}>✕</button>
             <div class="sb-node-header"><span class="sb-node-icon">\u{1F5BC}️</span><span class="sb-node-title">${d.title || '(未命名)'}</span></div>
             ${d.generating ? html`<div class="sb-gen-progress"><span class="sb-spinner"></span><span>${d.genProgress || '生成中...'}</span></div>` : d.assetUrl ? html`<div class="sb-node-thumb" style="cursor:pointer" onClick=${e => { e.stopPropagation(); this.act.preview(this.id); }}><img src=${d.assetUrl} /></div>` : null}
             ${hist.length > 0 ? html`<div class="sb-history-bar">${hist.slice(-5).map(h => html`<div class=${'sb-history-item' + (h.selected ? ' active' : '')} onClick=${e => { e.stopPropagation(); this.act.selectHistory(this.id, h.path); }}><img src=${'/workspace/' + h.path} /></div>`)}</div>` : null}
@@ -183,7 +183,7 @@ const VideoShotNode = {
         const d = this.data || {};
         const hist = d.history || [];
         return html`<div class="sb-node sb-node-shot sb-node-video">
-            <button class="sb-node-close" onClick=${e => { e.stopPropagation(); this.act.del(this.id); }}>✕</button>
+            <button class="sb-node-close" title="删除节点" onClick=${e => { e.stopPropagation(); this.act.del(this.id); }}>✕</button>
             <div class="sb-node-header"><span class="sb-node-icon">\u{1F3AC}</span><span class="sb-node-title">${d.title || '(未命名)'}</span>${d.duration ? html`<span class="sb-duration">${d.duration}s</span>` : null}</div>
             ${d.generating ? html`<div class="sb-gen-progress"><span class="sb-spinner"></span><span>${d.genProgress || '生成中...'}</span></div>` : d.assetUrl ? html`<div class="sb-node-thumb" style="cursor:pointer" onClick=${e => { e.stopPropagation(); this.act.preview(this.id); }}><video src=${d.assetUrl} muted preload="metadata"></video></div>` : null}
             ${hist.length > 0 ? html`<div class="sb-history-bar">${hist.slice(-5).map(h => html`<div class=${'sb-history-item' + (h.selected ? ' active' : '')} onClick=${e => { e.stopPropagation(); this.act.selectHistory(this.id, h.path); }}><video src=${'/workspace/' + h.path} muted preload="metadata" /></div>`)}</div>` : null}
@@ -213,7 +213,7 @@ const AudioShotNode = {
     render() {
         const d = this.data || {};
         return html`<div class="sb-node sb-node-shot sb-node-audio">
-            <button class="sb-node-close" onClick=${e => { e.stopPropagation(); this.act.del(this.id); }}>✕</button>
+            <button class="sb-node-close" title="删除节点" onClick=${e => { e.stopPropagation(); this.act.del(this.id); }}>✕</button>
             <div class="sb-node-header"><span class="sb-node-icon">\u{1F3B5}</span><span class="sb-node-title">${d.title || '(未命名)'}</span>${d.duration ? html`<span class="sb-duration">${d.duration}s</span>` : null}</div>
             ${d.assetUrl ? html`<div style="padding:4px 0;cursor:pointer" onClick=${e => { e.stopPropagation(); this.act.preview(this.id); }}><audio src=${d.assetUrl} controls style="width:100%;height:28px"></audio></div>` : null}
             ${d.summary ? html`<div class="sb-node-summary">${d.summary}</div>` : null}
@@ -1510,7 +1510,7 @@ const StoryboardApp = {
 
         // --- Script Import (progressive: episodes → scenes → shots) ---
         const scriptState = reactive({
-            show: false, level: 'episodes', step: 'idle', inputTab: 'file',
+            show: false, level: 'episodes', step: 'idle',
             scriptText: '', filename: '', model: '',
             progress: '', error: '', source: '',
             result: null,
@@ -1519,6 +1519,17 @@ const StoryboardApp = {
             styleIndex: 0, styleCustom: '',
         });
         const textModels = window.state?.textModels ? Object.values(window.state.textModels) : ['doubao-seed-2-0-pro-260215'];
+        function friendlyModelName(id) {
+            if (!id) return '';
+            // doubao-seed-x-y-suffix-date → Doubao Seed X.Y Suffix
+            const m = id.match(/^doubao-seed-(\d+)-(\d+)(?:-(pro|lite|fast))?(?:-\d+)?$/i);
+            if (m) {
+                let name = `Doubao Seed ${m[1]}.${m[2]}`;
+                if (m[3]) name += ' ' + m[3].charAt(0).toUpperCase() + m[3].slice(1);
+                return name;
+            }
+            return id;
+        }
 
         function openScriptImport(level) {
             // level: 'episodes' | 'scenes' | 'shots'
@@ -1650,7 +1661,6 @@ const StoryboardApp = {
             closeScreenwriter();
             openScriptImport('episodes');
             scriptState.scriptText = text;
-            scriptState.inputTab = 'text';
         }
         async function saveScreenplayToWorkspace() {
             const text = (screenwriterState.screenplay || '').trim();
@@ -1975,7 +1985,7 @@ const StoryboardApp = {
             libraryState, openLibrary, closeLibrary, addLibraryItem, deleteLibraryItem, onLibField, onLibTags, uploadLibImage, generateLibImage,
             toggleBatchMode, toggleSelectLibItem, batchDeleteLibItems,
             scriptState, openScriptImport, closeScriptImport, startScriptAnalysis, generateSelectedImages, confirmImport,
-            onScriptFileInput, onScriptWorkspacePick, textModels,
+            onScriptFileInput, onScriptWorkspacePick, textModels, friendlyModelName,
             screenwriterState, openScreenwriter, closeScreenwriter, sendScreenwriterMessage, generateScreenplay, useScreenplayForImport, saveScreenplayToWorkspace,
             mentionState, getConnectedRefs, getCombinedPrompt, showMentionPopup, hideMentionPopup, insertMentionRef,
             globalSettings, openGlobalSettings, closeGlobalSettings, applyGlobalImageSettings, applyGlobalVideoSettings,
@@ -1994,37 +2004,37 @@ const StoryboardApp = {
         const tbBtns = [];
         if (!this.hasProject) { tbBtns.push(html`<button disabled class="sb-tb-btn sb-tb-disabled">请先选择项目</button>`); }
         else {
-            if (this.nav.level === 'episode') tbBtns.push(html`<button onClick=${() => this.addEntity()} class="sb-tb-btn">+ 剧集</button>`);
-            if (this.nav.level === 'scene') tbBtns.push(html`<button onClick=${() => this.addEntity()} class="sb-tb-btn">+ 场景</button>`);
+            if (this.nav.level === 'episode') tbBtns.push(html`<button onClick=${() => this.addEntity()} class="sb-tb-btn" title="新建剧集">+ 剧集</button>`);
+            if (this.nav.level === 'scene') tbBtns.push(html`<button onClick=${() => this.addEntity()} class="sb-tb-btn" title="新建场景">+ 场景</button>`);
             if (isShotLevel) {
-                tbBtns.push(html`<button onClick=${() => this.addEntity('text')} class="sb-tb-btn">\u{2728} 提示词</button>`);
-                tbBtns.push(html`<button onClick=${() => this.addEntity('image')} class="sb-tb-btn">\u{1F5BC} 图像</button>`);
-                tbBtns.push(html`<button onClick=${() => this.addEntity('video')} class="sb-tb-btn">\u{1F3AC} 视频</button>`);
-                tbBtns.push(html`<button onClick=${() => this.addEntity('audio')} class="sb-tb-btn">\u{1F3B5} 音频</button>`);
+                tbBtns.push(html`<button onClick=${() => this.addEntity('text')} class="sb-tb-btn" title="添加提示词节点">\u{2728} 提示词</button>`);
+                tbBtns.push(html`<button onClick=${() => this.addEntity('image')} class="sb-tb-btn" title="添加图像生成节点">\u{1F5BC} 图像</button>`);
+                tbBtns.push(html`<button onClick=${() => this.addEntity('video')} class="sb-tb-btn" title="添加视频生成节点">\u{1F3AC} 视频</button>`);
+                tbBtns.push(html`<button onClick=${() => this.addEntity('audio')} class="sb-tb-btn" title="添加音频节点">\u{1F3B5} 音频</button>`);
                 tbBtns.push(html`<span class="sb-tb-sep"></span>`);
-                tbBtns.push(html`<button onClick=${this.autoLayout} class="sb-tb-btn">\u{1F4CA} 排列</button>`);
-                tbBtns.push(html`<button onClick=${this.fitView} class="sb-tb-btn">⌚ 适配</button>`);
+                tbBtns.push(html`<button onClick=${this.autoLayout} class="sb-tb-btn" title="自动排列节点布局">\u{1F4CA} 排列</button>`);
+                tbBtns.push(html`<button onClick=${this.fitView} class="sb-tb-btn" title="适配视图显示所有节点">⌚ 适配</button>`);
             }
             tbBtns.push(html`<span class="sb-tb-sep"></span>`);
             if (this.nav.level === 'episode') {
-                tbBtns.push(html`<button onClick=${() => this.openScriptImport('episodes')} class="sb-tb-btn">\u{1F4C4} 剧本导入</button>`);
-                tbBtns.push(html`<button onClick=${this.openScreenwriter} class="sb-tb-btn">\u{270D} 交互式创作</button>`);
+                tbBtns.push(html`<button onClick=${() => this.openScriptImport('episodes')} class="sb-tb-btn" title="导入剧本并拆分剧集">\u{1F4C4} 剧本导入</button>`);
+                tbBtns.push(html`<button onClick=${this.openScreenwriter} class="sb-tb-btn" title="AI 辅助剧本创作">\u{270D} 剧本创作</button>`);
             }
             if (this.nav.level === 'scene' && this.currentEpisode) {
-                tbBtns.push(html`<button onClick=${() => this.openScriptImport('scenes')} class="sb-tb-btn">\u{1F4C4} 拆分场景</button>`);
+                tbBtns.push(html`<button onClick=${() => this.openScriptImport('scenes')} class="sb-tb-btn" title="从剧本拆分场景">\u{1F4C4} 拆分场景</button>`);
             }
             if (isShotLevel && this.currentScene) {
-                tbBtns.push(html`<button onClick=${() => this.openScriptImport('shots')} class="sb-tb-btn">\u{1F4C4} 拆分镜头</button>`);
+                tbBtns.push(html`<button onClick=${() => this.openScriptImport('shots')} class="sb-tb-btn" title="从剧本拆分镜头">\u{1F4C4} 拆分镜头</button>`);
             }
-            tbBtns.push(html`<button onClick=${this.syncWorkspace} class="sb-tb-btn">\u{1F4C2} 同步</button>`);
-            tbBtns.push(html`<button onClick=${this.openLibrary} class="sb-tb-btn">\u{1F4DA} 素材库</button>`);
-            if (isShotLevel) tbBtns.push(html`<button onClick=${this.openGlobalSettings} class="sb-tb-btn">\u{2699} 全局设置</button>`);
+            tbBtns.push(html`<button onClick=${this.syncWorkspace} class="sb-tb-btn" title="同步项目到工作空间文件夹">\u{1F4C2} 同步</button>`);
+            tbBtns.push(html`<button onClick=${this.openLibrary} class="sb-tb-btn" title="管理角色、道具、场景素材">\u{1F4DA} 素材库</button>`);
+            if (isShotLevel) tbBtns.push(html`<button onClick=${this.openGlobalSettings} class="sb-tb-btn" title="批量设置图像/视频生成参数">\u{2699} 全局设置</button>`);
         }
 
         // Tree dropdown widget (inserted into crumbs after project select)
         const treeDropdown = this.hasProject ? html`
             <div class="sb-tree-dropdown">
-                <button class="sb-tree-toggle" onClick=${() => { this.treeVisible = !this.treeVisible; }}>
+                <button class="sb-tree-toggle" title="切换树形导航" onClick=${() => { this.treeVisible = !this.treeVisible; }}>
                     📁 <span>目录</span> <span style=${this.treeVisible ? 'transform:rotate(90deg)' : ''}>▶</span>
                 </button>
                 ${this.treeVisible ? html`
@@ -2040,7 +2050,7 @@ const StoryboardApp = {
                                 return html`
                                 <div key=${ep.id} class="sb-tree-group">
                                     <div class=${this.nav.episodeId === ep.id && this.nav.level === 'scene' ? 'sb-tree-item active' : this.nav.episodeId === ep.id && this.nav.level === 'shot' ? 'sb-tree-item parent-active' : 'sb-tree-item'}>
-                                        <button class="sb-tree-arrow" onClick=${e => this.toggleTreeExpand(ep.id, e)}>
+                                        <button class="sb-tree-arrow" title="展开/折叠" onClick=${e => this.toggleTreeExpand(ep.id, e)}>
                                             <span style=${expanded ? 'transform:rotate(90deg)' : ''}>▶</span>
                                         </button>
                                         <span class="sb-tree-icon" onClick=${() => this.treeNav(ep.id, null)}>🎬</span>
@@ -2083,21 +2093,21 @@ const StoryboardApp = {
             const eps = Object.values(this.sbData.episodes);
             if (!eps.length) cards.push(html`<div class="sb-card-empty">暂无剧集，点击上方"+ 剧集"按钮添加</div>`);
             eps.forEach(ep => cards.push(html`<div class="sb-card" key=${ep.id} onClick=${() => this.startEdit(ep.id)}>
-                <button class="sb-card-del" onClick=${e => { e.stopPropagation(); this.deleteEntity(ep.id); }}>✕</button>
+                <button class="sb-card-del" title="删除剧集" onClick=${e => { e.stopPropagation(); this.deleteEntity(ep.id); }}>✕</button>
                 <div class="sb-card-header"><span class="sb-card-icon">\u{1F3AC}</span><span class="sb-card-title">${ep.title || '(未命名剧集)'}</span></div>
                 ${ep.summary ? html`<div class="sb-card-summary">${ep.summary}</div>` : null}
                 ${ep.tags?.length ? html`<div class="sb-card-tags">${ep.tags.map(t => html`<span class="sb-tag" key=${t}>${t}</span>`)}</div>` : null}
-                <div class="sb-card-footer"><button class="sb-card-enter" onClick=${e => { e.stopPropagation(); this.drillDown(ep.id); }}>进入场景 →</button></div>
+                <div class="sb-card-footer"><button class="sb-card-enter" title="进入场景编辑" onClick=${e => { e.stopPropagation(); this.drillDown(ep.id); }}>进入场景 →</button></div>
             </div>`));
         } else if (this.nav.level === 'scene') {
             const scenes = this.currentEpisode ? Object.values(this.currentEpisode.scenes) : [];
             if (!scenes.length) cards.push(html`<div class="sb-card-empty">暂无场景，点击上方"+ 场景"按钮添加</div>`);
             scenes.forEach(sc => cards.push(html`<div class="sb-card" key=${sc.id} onClick=${() => this.startEdit(sc.id)}>
-                <button class="sb-card-del" onClick=${e => { e.stopPropagation(); this.deleteEntity(sc.id); }}>✕</button>
+                <button class="sb-card-del" title="删除场景" onClick=${e => { e.stopPropagation(); this.deleteEntity(sc.id); }}>✕</button>
                 <div class="sb-card-header"><span class="sb-card-icon">\u{1F3DD}</span><span class="sb-card-title">${sc.title || '(未命名场景)'}</span></div>
                 ${sc.summary ? html`<div class="sb-card-summary">${sc.summary}</div>` : null}
                 ${sc.tags?.length ? html`<div class="sb-card-tags">${sc.tags.map(t => html`<span class="sb-tag" key=${t}>${t}</span>`)}</div>` : null}
-                <div class="sb-card-footer"><button class="sb-card-enter" onClick=${e => { e.stopPropagation(); this.drillDown(sc.id); }}>进入分镜 →</button></div>
+                <div class="sb-card-footer"><button class="sb-card-enter" title="进入分镜画布" onClick=${e => { e.stopPropagation(); this.drillDown(sc.id); }}>进入分镜 →</button></div>
             </div>`));
         }
 
@@ -2106,7 +2116,7 @@ const StoryboardApp = {
             <div class="sb-edit-panel">
                 <div class="sb-edit-header">
                     <h3>${isEdgeEdit ? '编辑连线' : et.type === 'episode' ? '编辑剧集' : et.type === 'scene' ? '编辑场景' : '属性'}</h3>
-                    <button onClick=${this.closeEdit} class="sb-del-btn">✕</button>
+                    <button onClick=${this.closeEdit} class="sb-del-btn" title="关闭">✕</button>
                 </div>
                 <div class="sb-edit-body">
                     ${isEdgeEdit ? html`
@@ -2241,7 +2251,7 @@ const StoryboardApp = {
                 <div class="sb-optimize-dialog">
                     <div class="sb-optimize-header">
                         <h3>提示词优化对比</h3>
-                        <button onClick=${this.rejectOptimize} class="sb-del-btn">✕</button>
+                        <button onClick=${this.rejectOptimize} class="sb-del-btn" title="关闭">✕</button>
                     </div>
                     <div class="sb-optimize-body">
                         <div class="sb-optimize-col">
@@ -2255,8 +2265,8 @@ const StoryboardApp = {
                     </div>
                     ${!this.optimizeState.loading ? html`
                         <div class="sb-optimize-actions">
-                            <button class="sb-optimize-reject" onClick=${this.rejectOptimize}>取消</button>
-                            <button class="sb-optimize-accept" onClick=${this.acceptOptimize}>采用优化结果</button>
+                            <button class="sb-optimize-reject" title="取消优化" onClick=${this.rejectOptimize}>取消</button>
+                            <button class="sb-optimize-accept" title="采用优化后的提示词" onClick=${this.acceptOptimize}>采用优化结果</button>
                         </div>
                     ` : null}
                 </div>
@@ -2275,18 +2285,18 @@ const StoryboardApp = {
                 <div class="sb-lib-dialog" onClick=${e => e.stopPropagation()}>
                     <div class="sb-lib-header">
                         <h3>素材库</h3>
-                        <button onClick=${this.closeLibrary} class="sb-del-btn">✕</button>
+                        <button onClick=${this.closeLibrary} class="sb-del-btn" title="关闭">✕</button>
                     </div>
                     <div class="sb-lib-tabs">
                         <div class="sb-lib-tabs-left">
-                            <button class=${ls.tab === 'character' ? 'sb-lib-tab active' : 'sb-lib-tab'} onClick=${() => { ls.tab = 'character'; ls.editId = null; }}>角色 (${libChars.length})</button>
-                            <button class=${ls.tab === 'prop' ? 'sb-lib-tab active' : 'sb-lib-tab'} onClick=${() => { ls.tab = 'prop'; ls.editId = null; }}>道具 (${libProps.length})</button>
-                            <button class=${ls.tab === 'scene' ? 'sb-lib-tab active' : 'sb-lib-tab'} onClick=${() => { ls.tab = 'scene'; ls.editId = null; }}>场景 (${libScenes.length})</button>
+                            <button class=${ls.tab === 'character' ? 'sb-lib-tab active' : 'sb-lib-tab'} title="角色素材" onClick=${() => { ls.tab = 'character'; ls.editId = null; }}>角色 (${libChars.length})</button>
+                            <button class=${ls.tab === 'prop' ? 'sb-lib-tab active' : 'sb-lib-tab'} title="道具素材" onClick=${() => { ls.tab = 'prop'; ls.editId = null; }}>道具 (${libProps.length})</button>
+                            <button class=${ls.tab === 'scene' ? 'sb-lib-tab active' : 'sb-lib-tab'} title="场景素材" onClick=${() => { ls.tab = 'scene'; ls.editId = null; }}>场景 (${libScenes.length})</button>
                         </div>
                         <div class="sb-lib-tabs-right">
-                            <button class="sb-lib-add" onClick=${() => this.addLibraryItem(ls.tab)}>+ 添加</button>
-                            <button class=${ls.batchMode ? 'sb-lib-add active' : 'sb-lib-add'} onClick=${this.toggleBatchMode}>${ls.batchMode ? '取消多选' : '多选'}</button>
-                            ${ls.batchMode ? html`<button class="sb-lib-add sb-lib-del-batch" onClick=${this.batchDeleteLibItems} disabled=${!Object.keys(ls.selectedIds).length}>删除选中 (${Object.keys(ls.selectedIds).length})</button>` : null}
+                            <button class="sb-lib-add" title="添加新素材" onClick=${() => this.addLibraryItem(ls.tab)}>+ 添加</button>
+                            <button class=${ls.batchMode ? 'sb-lib-add active' : 'sb-lib-add'} title="多选模式" onClick=${this.toggleBatchMode}>${ls.batchMode ? '取消多选' : '多选'}</button>
+                            ${ls.batchMode ? html`<button class="sb-lib-add sb-lib-del-batch" title="批量删除选中素材" onClick=${this.batchDeleteLibItems} disabled=${!Object.keys(ls.selectedIds).length}>删除选中 (${Object.keys(ls.selectedIds).length})</button>` : null}
                         </div>
                     </div>
                     <div class="sb-lib-body">
@@ -2316,7 +2326,7 @@ const StoryboardApp = {
                             <div class="sb-lib-edit">
                                 <div class="sb-lib-edit-header">
                                     <h4>编辑${libEditType === 'character' ? '角色' : libEditType === 'prop' ? '道具' : '场景'}</h4>
-                                    <button class="sb-lib-del-btn" onClick=${() => this.deleteLibraryItem(libEditType, libEditItem.id)}>删除</button>
+                                    <button class="sb-lib-del-btn" title="删除素材" onClick=${() => this.deleteLibraryItem(libEditType, libEditItem.id)}>删除</button>
                                 </div>
                                 <label>名称</label>
                                 <input value=${libEditItem.name || ''} onInput=${e => this.onLibField('name', e)} placeholder="输入名称..." />
@@ -2338,8 +2348,8 @@ const StoryboardApp = {
                                         ${libEditItem.imageAsset ? html`<img src=${'/workspace/' + libEditItem.imageAsset} onClick=${e => { e.stopPropagation(); this.openPreview({ type: 'image', url: '/workspace/' + libEditItem.imageAsset, title: libEditItem.name || '参考图' }); }} style="cursor:pointer" />` : html`<div class="sb-lib-img-empty">暂无参考图</div>`}
                                     </div>
                                     <div class="sb-lib-img-actions">
-                                        <button class="sb-lib-btn" onClick=${() => this.uploadLibImage(libEditType, libEditItem.id)}>\u{1F4E4} 上传图片</button>
-                                        <button class="sb-lib-btn primary" onClick=${() => this.generateLibImage(libEditType, libEditItem.id)} disabled=${this.libraryState.generating}>${this.libraryState.generating ? '生成中...' : '\u{2728} AI生成'}</button>
+                                        <button class="sb-lib-btn" title="上传参考图" onClick=${() => this.uploadLibImage(libEditType, libEditItem.id)}>\u{1F4E4} 上传图片</button>
+                                        <button class="sb-lib-btn primary" title="AI 生成参考图" onClick=${() => this.generateLibImage(libEditType, libEditItem.id)} disabled=${this.libraryState.generating}>${this.libraryState.generating ? '生成中...' : '\u{2728} AI生成'}</button>
                                     </div>
                                 </div>
                             </div>
@@ -2389,7 +2399,7 @@ const StoryboardApp = {
                         </div>
                         <div class="sb-assistant-input">
                             <input value=${this.assistantState.input} onInput=${e => { this.assistantState.input = e.target.value; }} onKeydown=${e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.sendAssistantMessage(); } }} placeholder="输入问题..." />
-                            <button onClick=${this.sendAssistantMessage} disabled=${this.assistantState.loading || !this.assistantState.input.trim()}>发送</button>
+                            <button title="发送消息" onClick=${this.sendAssistantMessage} disabled=${this.assistantState.loading || !this.assistantState.input.trim()}>发送</button>
                         </div>
                     </div>
                 ` : null}
@@ -2402,14 +2412,14 @@ const StoryboardApp = {
                                 <svg class="sb-gs-header-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="3"/><path d="M10 1v2m0 14v2m-9-9h2m14 0h2m-2.636-6.364l-1.414 1.414M4.05 15.95l-1.414 1.414m0-12.728l1.414 1.414M15.95 15.95l1.414 1.414"/></svg>
                                 全局设置
                             </h3>
-                            <button onClick=${this.closeGlobalSettings} class="sb-del-btn" aria-label="关闭">✕</button>
+                            <button onClick=${this.closeGlobalSettings} class="sb-del-btn" title="关闭" aria-label="关闭">✕</button>
                         </div>
                         <div class="sb-gs-tabs" role="tablist">
-                            <button class=${this.globalSettings.tab === 'image' ? 'sb-gs-tab active' : 'sb-gs-tab'} role="tab" aria-selected=${this.globalSettings.tab === 'image'} onClick=${() => { this.globalSettings.tab = 'image'; }}>
+                            <button class=${this.globalSettings.tab === 'image' ? 'sb-gs-tab active' : 'sb-gs-tab'} role="tab" title="图像生成设置" aria-selected=${this.globalSettings.tab === 'image'} onClick=${() => { this.globalSettings.tab = 'image'; }}>
                                 <svg class="sb-gs-tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="2" width="14" height="12" rx="2"/><circle cx="5.5" cy="6.5" r="1.5"/><path d="m15 10-3-3-5 5"/></svg>
                                 图像节点
                             </button>
-                            <button class=${this.globalSettings.tab === 'video' ? 'sb-gs-tab active' : 'sb-gs-tab'} role="tab" aria-selected=${this.globalSettings.tab === 'video'} onClick=${() => { this.globalSettings.tab = 'video'; }}>
+                            <button class=${this.globalSettings.tab === 'video' ? 'sb-gs-tab active' : 'sb-gs-tab'} role="tab" title="视频生成设置" aria-selected=${this.globalSettings.tab === 'video'} onClick=${() => { this.globalSettings.tab = 'video'; }}>
                                 <svg class="sb-gs-tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="10" height="10" rx="2"/><path d="m11 6 4-2v8l-4-2"/></svg>
                                 视频节点
                             </button>
@@ -2442,8 +2452,8 @@ const StoryboardApp = {
                                 </select>
                                 <p class="sb-gs-hint">将覆盖当前场景所有图像节点的模型、分辨率和比例设置</p>
                                 <div class="sb-gs-actions">
-                                    <button class="sb-gs-btn" onClick=${this.closeGlobalSettings}>取消</button>
-                                    <button class="sb-gs-btn primary" onClick=${() => { if (confirm('确认将当前设置应用到所有图像节点？已有的模型和尺寸设置将被覆盖。')) this.applyGlobalImageSettings(); }}>应用到所有图像节点</button>
+                                    <button class="sb-gs-btn" title="取消" onClick=${this.closeGlobalSettings}>取消</button>
+                                    <button class="sb-gs-btn primary" title="将设置应用到所有图像节点" onClick=${() => { if (confirm('确认将当前设置应用到所有图像节点？已有的模型和尺寸设置将被覆盖。')) this.applyGlobalImageSettings(); }}>应用到所有图像节点</button>
                                 </div>
                             </div>
                         ` : html`
@@ -2470,8 +2480,8 @@ const StoryboardApp = {
                                 </select>
                                 <p class="sb-gs-hint">将覆盖当前场景所有视频节点的模型、分辨率和比例设置</p>
                                 <div class="sb-gs-actions">
-                                    <button class="sb-gs-btn" onClick=${this.closeGlobalSettings}>取消</button>
-                                    <button class="sb-gs-btn primary" onClick=${() => { if (confirm('确认将当前设置应用到所有视频节点？已有的模型和尺寸设置将被覆盖。')) this.applyGlobalVideoSettings(); }}>应用到所有视频节点</button>
+                                    <button class="sb-gs-btn" title="取消" onClick=${this.closeGlobalSettings}>取消</button>
+                                    <button class="sb-gs-btn primary" title="将设置应用到所有视频节点" onClick=${() => { if (confirm('确认将当前设置应用到所有视频节点？已有的模型和尺寸设置将被覆盖。')) this.applyGlobalVideoSettings(); }}>应用到所有视频节点</button>
                                 </div>
                             </div>
                         `}
@@ -2483,7 +2493,7 @@ const StoryboardApp = {
                         <div class="sb-preview-dialog" onClick=${e => e.stopPropagation()}>
                             <div class="sb-preview-header">
                                 <h3>${this.previewState.title}</h3>
-                                <button onClick=${this.closePreview} class="sb-del-btn">✕</button>
+                                <button onClick=${this.closePreview} class="sb-del-btn" title="关闭">✕</button>
                             </div>
                             <div class="sb-preview-body">
                                 ${this.previewState.type === 'image' ? html`<img src=${this.previewState.url} style="max-width:100%;max-height:70vh;border-radius:8px" />` : null}
@@ -2498,31 +2508,22 @@ const StoryboardApp = {
                     <div class="sb-imp-overlay" onClick=${this.closeScriptImport}>
                         <div class="sb-imp-dialog" onClick=${e => e.stopPropagation()}>
                             <div class="sb-imp-header">
-                                <h3>${this.scriptState.level === 'episodes' ? '剧本导入 — 拆分剧集' : this.scriptState.level === 'scenes' ? '拆分场景' : '拆分镜头'}</h3>
-                                <button onClick=${this.closeScriptImport} class="sb-del-btn">✕</button>
+                                <h3>${this.scriptState.level === 'episodes' ? '剧本导入' : this.scriptState.level === 'scenes' ? '拆分场景' : '拆分镜头'}</h3>
+                                <button onClick=${this.closeScriptImport} class="sb-del-btn" title="关闭">✕</button>
                             </div>
                             <div class="sb-imp-body">
                                 ${this.scriptState.step === 'idle' || this.scriptState.step === 'analyzing' ? html`
                                     ${this.scriptState.level === 'episodes' ? html`
                                         <div class="sb-imp-section">
-                                            <label>剧本输入</label>
-                                            <div class="sb-imp-tabs">
-                                                <button class=${this.scriptState.inputTab === 'file' ? 'sb-imp-tab active' : 'sb-imp-tab'} onClick=${() => { this.scriptState.inputTab = 'file'; }}>上传文件</button>
-                                                <button class=${this.scriptState.inputTab === 'text' ? 'sb-imp-tab active' : 'sb-imp-tab'} onClick=${() => { this.scriptState.inputTab = 'text'; }}>粘贴文本</button>
-                                                <button class=${this.scriptState.inputTab === 'workspace' ? 'sb-imp-tab active' : 'sb-imp-tab'} onClick=${() => { this.scriptState.inputTab = 'workspace'; }}>工作空间</button>
-                                            </div>
-                                            ${this.scriptState.inputTab === 'file' ? html`
-                                                <div class="sb-imp-upload" onClick=${this.onScriptFileInput}>
-                                                    ${this.scriptState.filename ? html`<span>${this.scriptState.filename}</span>` : html`<span>点击选择文件 (.txt, .md)</span>`}
+                                            <div style="display:flex;align-items:center;justify-content:space-between">
+                                                <label style="margin:0">剧本内容</label>
+                                                <div style="display:flex;gap:4px">
+                                                    <button title="上传文件" onClick=${this.onScriptFileInput} style="background:none;border:none;cursor:pointer;padding:4px 6px;border-radius:4px;color:var(--text-muted);transition:color .15s" onMouseEnter=${e => e.target.style.color='var(--accent-indigo)'} onMouseLeave=${e => e.target.style.color='var(--text-muted)'}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
+                                                    <button title="从工作空间选择" onClick=${this.onScriptWorkspacePick} style="background:none;border:none;cursor:pointer;padding:4px 6px;border-radius:4px;color:var(--text-muted);transition:color .15s" onMouseEnter=${e => e.target.style.color='var(--accent-indigo)'} onMouseLeave=${e => e.target.style.color='var(--text-muted)'}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></button>
                                                 </div>
-                                            ` : null}
-                                            ${this.scriptState.inputTab === 'text' ? html`
-                                                <textarea class="sb-imp-textarea" value=${this.scriptState.scriptText} onInput=${e => { this.scriptState.scriptText = e.target.value; }} rows="8" placeholder="在此粘贴剧本内容..."></textarea>
-                                            ` : null}
-                                            ${this.scriptState.inputTab === 'workspace' ? html`
-                                                <button class="sb-imp-btn" onClick=${this.onScriptWorkspacePick}>从工作空间选择文件</button>
-                                                ${this.scriptState.filename ? html`<p style="font-size:12px;color:var(--text-muted);margin:4px 0">已选择: ${this.scriptState.filename}</p>` : null}
-                                            ` : null}
+                                            </div>
+                                            ${this.scriptState.filename ? html`<p style="font-size:12px;color:var(--text-muted);margin:0">已选择: ${this.scriptState.filename}</p>` : null}
+                                            <textarea class="sb-imp-textarea" value=${this.scriptState.scriptText} onInput=${e => { this.scriptState.scriptText = e.target.value; }} rows="8" placeholder="在此粘贴或输入剧本内容..."></textarea>
                                         </div>
                                     ` : html`
                                         <div class="sb-imp-section">
@@ -2534,7 +2535,7 @@ const StoryboardApp = {
                                         <div class="sb-imp-section">
                                             <label>分析模型</label>
                                             <select class="sb-imp-select" value=${this.scriptState.model} onChange=${e => { this.scriptState.model = e.target.value; }}>
-                                                ${this.textModels.map(m => html`<option value=${m} key=${m}>${m}</option>`)}
+                                                ${this.textModels.map(m => html`<option value=${m} key=${m}>${this.friendlyModelName(m)}</option>`)}
                                             </select>
                                         </div>
                                     ` : null}
@@ -2542,13 +2543,13 @@ const StoryboardApp = {
                                     ${this.scriptState.step === 'analyzing' ? html`
                                         <div class="sb-imp-progress">${this.scriptState.progress}</div>
                                     ` : html`
-                                        <button class="sb-imp-primary" onClick=${this.startScriptAnalysis} disabled=${!this.scriptState.scriptText.trim()}>开始分析</button>
+                                        <button class="sb-imp-primary" title="开始分析剧本" onClick=${this.startScriptAnalysis} disabled=${!this.scriptState.scriptText.trim()}>开始分析</button>
                                     `}
                                 ` : null}
                                 ${this.scriptState.step === 'preview' ? html`
                                     ${this.scriptState.detailId ? html`
                                         <div class="sb-imp-detail">
-                                            <button class="sb-imp-back" onClick=${() => { this.scriptState.detailId = null; }}>← 返回列表</button>
+                                            <button class="sb-imp-back" title="返回列表" onClick=${() => { this.scriptState.detailId = null; }}>← 返回列表</button>
                                             ${(() => {
                                                 const [type, idx] = this.scriptState.detailId.split('-');
                                                 const i = parseInt(idx);
@@ -2673,15 +2674,15 @@ const StoryboardApp = {
                                                         </select>
                                                         ${this.scriptState.styleIndex === STYLE_PRESETS.length - 1 ? html`<input class="sb-lib-style-custom sb-inline-select" value=${this.scriptState.styleCustom} onInput=${e => { this.scriptState.styleCustom = e.target.value; }} placeholder="输入自定义画风描述..." style="display:block;width:100%;margin-top:6px" />` : null}
                                                         <div class="sb-imp-actions" style="margin-top:10px">
-                                                            <button class="sb-imp-btn" onClick=${this.generateSelectedImages} disabled=${this.scriptState.generatingImages}>${this.scriptState.generatingImages ? this.scriptState.progress + '（可关闭窗口，后台继续）' : '\u{2728} 生成选中图片'}</button>
+                                                            <button class="sb-imp-btn" title="为选中的角色/道具/场景生成参考图" onClick=${this.generateSelectedImages} disabled=${this.scriptState.generatingImages}>${this.scriptState.generatingImages ? this.scriptState.progress + '（可关闭窗口，后台继续）' : '\u{2728} 生成选中图片'}</button>
                                                         </div>
                                                     </div>
                                                 </div>
                                             ` : null}
                                         </div>
                                         <div class="sb-imp-actions" style="margin-top:16px">
-                                            <button class="sb-imp-btn" onClick=${() => { this.scriptState.step = 'idle'; }}>返回修改</button>
-                                            <button class="sb-imp-primary" onClick=${this.confirmImport}>确认导入</button>
+                                            <button class="sb-imp-btn" title="返回修改剧本" onClick=${() => { this.scriptState.step = 'idle'; }}>返回修改</button>
+                                            <button class="sb-imp-primary" title="确认导入到分镜" onClick=${this.confirmImport}>确认导入</button>
                                         </div>
                                     `}
                                 ` : null}
@@ -2693,8 +2694,8 @@ const StoryboardApp = {
                     <div class="sb-imp-overlay" onClick=${this.closeScreenwriter}>
                         <div class="sb-imp-dialog" onClick=${e => e.stopPropagation()}>
                             <div class="sb-imp-header">
-                                <h3>${this.screenwriterState.step === 'preview' ? '交互式剧本创作 — 剧本预览' : '交互式剧本创作'}</h3>
-                                <button onClick=${this.closeScreenwriter} class="sb-del-btn">✕</button>
+                                <h3>${this.screenwriterState.step === 'preview' ? '剧本创作 — 剧本预览' : '剧本创作'}</h3>
+                                <button onClick=${this.closeScreenwriter} class="sb-del-btn" title="关闭">✕</button>
                             </div>
                             <div class="sb-imp-body">
                                 ${this.screenwriterState.step === 'chat' ? html`
@@ -2710,17 +2711,19 @@ const StoryboardApp = {
                                         <div class="sb-imp-section">
                                             <label>模型</label>
                                             <select class="sb-imp-select" value=${this.screenwriterState.model} onChange=${e => { this.screenwriterState.model = e.target.value; }}>
-                                                ${this.textModels.map(m => html`<option value=${m} key=${m}>${m}</option>`)}
+                                                ${this.textModels.map(m => html`<option value=${m} key=${m}>${this.friendlyModelName(m)}</option>`)}
                                             </select>
                                         </div>
                                     ` : null}
                                     ${this.screenwriterState.error ? html`<p class="sb-imp-error">${this.screenwriterState.error}</p>` : null}
-                                    <div class="sb-assistant-input">
-                                        <textarea rows="3" value=${this.screenwriterState.input} onInput=${e => { this.screenwriterState.input = e.target.value; }} onKeydown=${e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.sendScreenwriterMessage(); } }} placeholder="描述你的故事或回答问题...（Enter 发送，Shift+Enter 换行）"></textarea>
-                                        <button onClick=${this.sendScreenwriterMessage} disabled=${this.screenwriterState.loading || !this.screenwriterState.input.trim()}>发送</button>
+                                    <div style="position:relative">
+                                        <textarea class="sb-imp-textarea" rows="3" value=${this.screenwriterState.input} onInput=${e => { this.screenwriterState.input = e.target.value; }} onKeydown=${e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.sendScreenwriterMessage(); } }} placeholder="描述你的故事或回答问题...（Enter 发送，Shift+Enter 换行）" style="padding-right:48px"></textarea>
+                                        <button title="发送" onClick=${this.sendScreenwriterMessage} disabled=${this.screenwriterState.loading || !this.screenwriterState.input.trim()} style="position:absolute;right:6px;bottom:6px;width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;padding:0;background:var(--accent-indigo);color:#fff;border:none;cursor:pointer;flex-shrink:0;transition:opacity .1s">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                                        </button>
                                     </div>
                                     <div class="sb-imp-actions" style="margin-top:12px">
-                                        <button class=${this.screenwriterState.ready ? 'sb-imp-primary' : 'sb-imp-btn'} onClick=${this.generateScreenplay} disabled=${this.screenwriterState.generating}>${this.screenwriterState.generating ? '正在生成剧本…' : '\u{1F3AC} 生成剧本'}</button>
+                                        <button class=${this.screenwriterState.ready ? 'sb-imp-primary' : 'sb-imp-btn'} title="AI 生成完整剧本" onClick=${this.generateScreenplay} disabled=${this.screenwriterState.generating}>${this.screenwriterState.generating ? '正在生成剧本…' : '\u{1F3AC} 生成剧本'}</button>
                                     </div>
                                 ` : null}
                                 ${this.screenwriterState.step === 'preview' ? html`
@@ -2730,10 +2733,10 @@ const StoryboardApp = {
                                     </div>
                                     ${this.screenwriterState.error ? html`<p class="sb-imp-error">${this.screenwriterState.error}</p>` : null}
                                     <div class="sb-imp-actions" style="margin-top:12px">
-                                        <button class="sb-imp-btn" onClick=${() => { this.screenwriterState.step = 'chat'; }}>← 返回对话</button>
-                                        <button class="sb-imp-btn" onClick=${this.generateScreenplay} disabled=${this.screenwriterState.generating}>${this.screenwriterState.generating ? '重新生成中…' : '\u{1F501} 重新生成'}</button>
-                                        <button class="sb-imp-btn" onClick=${this.saveScreenplayToWorkspace}>\u{1F4BE} 保存到工作空间</button>
-                                        <button class="sb-imp-primary" onClick=${this.useScreenplayForImport}>用于剧本导入 →</button>
+                                        <button class="sb-imp-btn" title="返回对话编辑" onClick=${() => { this.screenwriterState.step = 'chat'; }}>← 返回对话</button>
+                                        <button class="sb-imp-btn" title="重新生成剧本" onClick=${this.generateScreenplay} disabled=${this.screenwriterState.generating}>${this.screenwriterState.generating ? '重新生成中…' : '\u{1F501} 重新生成'}</button>
+                                        <button class="sb-imp-btn" title="保存剧本到工作空间" onClick=${this.saveScreenplayToWorkspace}>\u{1F4BE} 保存到工作空间</button>
+                                        <button class="sb-imp-primary" title="将剧本导入到分镜" onClick=${this.useScreenplayForImport}>用于剧本导入 →</button>
                                     </div>
                                 ` : null}
                             </div>
@@ -2746,7 +2749,7 @@ const StoryboardApp = {
                     <div class="sb-mention-popup" onClick=${e => e.stopPropagation()}>
                         <div class="sb-mention-popup-header">
                             <h4>插入参考资源</h4>
-                            <button class="sb-del-btn" onClick=${this.hideMentionPopup}>✕</button>
+                            <button class="sb-del-btn" title="关闭" onClick=${this.hideMentionPopup}>✕</button>
                         </div>
                         ${['image', 'video', 'audio'].map(type => {
                             const items = this.mentionState.refs.filter(r => r.type === type);

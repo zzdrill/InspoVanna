@@ -1,6 +1,29 @@
-# InspoVanna
+<div align="center">
+  <img src="docs/banner.svg" alt="InspoVanna" width="480">
+</div>
 
-**本地 AI 创意工作室** — 基于火山引擎，支持文本对话、图像生成、视频生成、智能超清与分镜规划，所有生成内容自动保存在本地。
+**本地 AI 创意工作室** — 基于火山引擎 ARK API，集文本对话、图像生成、视频创作与一站式短剧创作于一体，所有生成内容自动保存在本地。
+
+<div align="center">
+  <img src="docs/imgs/homepage.png" alt="InspoVanna 首页" width="720">
+</div>
+
+## ✨ Spotlight
+
+**StoryBoard — 一站式短剧创作平台**
+
+从剧本到成片的全流程 AI 辅助创作工具：
+
+- **剧本创作**：与 AI 编剧助手对话式打磨故事点子，一键生成结构完整的剧本
+- **智能拆分**：导入剧本后自动拆分为剧集 → 场景 → 镜头三级结构
+- **分镜画布**：基于 Vue Flow 的可视化节点画布，支持文本、图像、视频、音频四种节点类型
+- **素材生成**：每个镜头节点可直接生成图片、视频素材，支持 @mention 引用角色/道具/场景
+- **角色库**：管理角色、道具、场景设定，一键生成设定图
+
+<div align="center">
+  <img src="docs/imgs/StoryBoard_1.png" alt="StoryBoard 分镜画布" width="350">
+  <img src="docs/imgs/StoryBoard_2.png" alt="StoryBoard 剧本创作" width="350">
+</div>
 
 ---
 
@@ -158,7 +181,7 @@ chmod +x run.sh
 
 ---
 
-### 四、StoryBoard（分镜规划）
+### 四、StoryBoard（一站式短剧创作平台）
 
 分层次的创意规划工具，从剧本到分镜一站式管理，支持 AI 辅助创作与直接生成素材。
 
@@ -260,17 +283,6 @@ chmod +x run.sh
 
 ---
 
-## 首页互动
-
-首页左下角有一只大象吉祥物，点击会随机触发以下动作之一：
-
-| 动作 | 效果 |
-|------|------|
-| 切换姿态 | 坐 → 站 → 跑 循环切换 |
-| 播放动画 | 坐/站：左右摇摆；跑：跳跃 |
-| 显示提示 | 弹出气泡显示一条使用技巧，5 秒后自动消失，再次点击立即消失 |
-
----
 
 ## 常见问题
 
