@@ -1184,8 +1184,12 @@ const StoryboardApp = {
                 while (gi < gQueue.length) {
                     const cur = gQueue[gi++];
                     for (const nxt of outEdges[cur]) {
-                        if (gSet.has(nxt) && (gDepth[nxt] ?? -1) < gDepth[cur] + 1) {
-                            gDepth[nxt] = gDepth[cur] + 1; gQueue.push(nxt);
+                        if (gSet.has(nxt)) {
+                            // Frame output nodes (video-frame-out) share same depth as parent (vertical stack)
+                            const edge = edges.find(e => e.source === cur && e.target === nxt);
+                            const isFrameOut = edge && edge.sourceHandle === 'video-frame-out';
+                            const nd = gDepth[cur] + (isFrameOut ? 0 : 1);
+                            if ((gDepth[nxt] ?? -1) < nd) { gDepth[nxt] = nd; gQueue.push(nxt); }
                         }
                     }
                 }
