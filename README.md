@@ -2,8 +2,6 @@
   <img src="docs/banner.svg" alt="InspoVanna" width="480">
 </div>
 
-**本地 AI 创意工作室** — 基于火山引擎 ARK API，集文本对话、图像生成、视频创作与一站式短剧创作于一体，所有生成内容自动保存在本地。
-
 <div align="center">
 
   ![Windows](https://img.shields.io/badge/Windows-✓-0078D4?logo=windows&logoColor=white)
@@ -13,6 +11,7 @@
 
 </div>
 
+**本地 AI 创意工作室** — 基于火山引擎 ARK API，集文本对话、图像生成、视频创作与一站式短剧创作于一体，所有生成内容自动保存在本地。
 <div align="center">
   <img src="docs/imgs/homepage.png" alt="InspoVanna 首页" width="480">
   <img src="docs/imgs/AIMakerHub.png" alt="AI Maker Hub 社区" width="240">
