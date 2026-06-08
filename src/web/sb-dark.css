@@ -126,6 +126,9 @@
     cursor: pointer;
     transition: background 0.15s, border-color 0.15s, color 0.15s;
     white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
 }
 .sb-tb-btn:hover {
     background: var(--btn-ghost-hover-bg);
@@ -325,6 +328,8 @@
 .sb-node-icon {
     font-size: 14px;
     flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
 }
 
 .sb-node-title {
@@ -395,6 +400,8 @@
     cursor: pointer;
     transition: background 0.15s, border-color 0.15s, color 0.15s;
     line-height: 1;
+    display: inline-flex;
+    align-items: center;
 }
 .sb-upload-btn:hover {
     background: var(--bg-elevated);

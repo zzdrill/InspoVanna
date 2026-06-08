@@ -133,7 +133,7 @@ const TextShotNode = {
         const hasConn = this.act.hasOutput(this.id);
         return html`<div class="sb-node sb-node-shot sb-node-text">
             <button class="sb-node-close" title="删除节点" onClick=${e => { e.stopPropagation(); this.act.del(this.id); }}>✕</button>
-            <div class="sb-node-header"><span class="sb-node-icon">\u{2728}</span><span class="sb-node-title">${d.title || '(未命名)'}</span></div>
+            <div class="sb-node-header"><span class="sb-node-icon">${ICON_TEXT}</span><span class="sb-node-title">${d.title || '(未命名)'}</span></div>
             ${d.summary ? html`<div class="sb-node-summary">${d.summary}</div>` : null}
             ${d.assetUrl ? html`<div class="sb-node-thumb"><div style="padding:6px;font-size:11px;color:var(--text-muted)">\u{1F4C4} ${d.assetUrl.split('/').pop()}</div></div>` : null}
             <div class="sb-node-actions">
@@ -154,11 +154,7 @@ const ImageShotNode = {
     render() {
         const d = this.data || {};
         const hist = d.history || [];
-        const iconSvg = d.frameIcon === 'firstFrame'
-            ? html`<svg viewBox="0 0 16 16" width="14" height="14"><rect x="1" y="1" width="14" height="14" rx="2" fill="#818cf8" opacity="0.25"/><rect x="1" y="1" width="14" height="3" rx="1" fill="#818cf8"/><circle cx="5" cy="9" r="2" fill="#c7d2fe"/><path d="M9 7l6 5v2a1 1 0 01-1 1H9z" fill="#a5b4fc" opacity="0.6"/></svg>`
-            : d.frameIcon === 'lastFrame'
-            ? html`<svg viewBox="0 0 16 16" width="14" height="14"><rect x="1" y="1" width="14" height="14" rx="2" fill="#f472b6" opacity="0.25"/><rect x="1" y="1" width="14" height="3" rx="1" fill="#f472b6"/><circle cx="5" cy="9" r="2" fill="#fbcfe8"/><path d="M9 7l6 5v2a1 1 0 01-1 1H9z" fill="#f9a8d4" opacity="0.6"/></svg>`
-            : html`<svg viewBox="0 0 16 16" width="14" height="14"><rect x="1" y="1" width="14" height="14" rx="2" fill="#f472b6" opacity="0.25"/><rect x="1" y="1" width="14" height="3" rx="1" fill="#f472b6"/><circle cx="5" cy="9" r="2" fill="#fbcfe8"/><path d="M9 7l6 5v2a1 1 0 01-1 1H9z" fill="#f9a8d4" opacity="0.6"/></svg>`;
+        const iconSvg = d.frameIcon === 'firstFrame' ? ICON_FIRST_FRAME : d.frameIcon === 'lastFrame' ? ICON_LAST_FRAME : ICON_IMAGE;
         return html`<div class="sb-node sb-node-shot sb-node-image">
             <button class="sb-node-close" title="删除节点" onClick=${e => { e.stopPropagation(); this.act.del(this.id); }}>✕</button>
             <div class="sb-node-header"><span class="sb-node-icon">${iconSvg}</span><span class="sb-node-title">${d.title || '(未命名)'}</span></div>
@@ -189,14 +185,14 @@ const VideoShotNode = {
         const hist = d.history || [];
         return html`<div class="sb-node sb-node-shot sb-node-video">
             <button class="sb-node-close" title="删除节点" onClick=${e => { e.stopPropagation(); this.act.del(this.id); }}>✕</button>
-            <div class="sb-node-header"><span class="sb-node-icon">\u{1F3AC}</span><span class="sb-node-title">${d.title || '(未命名)'}</span>${d.duration ? html`<span class="sb-duration">${d.duration}s</span>` : null}</div>
+            <div class="sb-node-header"><span class="sb-node-icon">${ICON_VIDEO}</span><span class="sb-node-title">${d.title || '(未命名)'}</span>${d.duration ? html`<span class="sb-duration">${d.duration}s</span>` : null}</div>
             ${d.generating ? html`<div class="sb-gen-progress"><span class="sb-spinner"></span><span>${d.genProgress || '生成中...'}</span></div>` : d.assetUrl ? html`<div class="sb-node-thumb" style="cursor:pointer" onClick=${e => { e.stopPropagation(); this.act.preview(this.id); }}><video src=${d.assetUrl} muted preload="metadata"></video></div>` : null}
             ${hist.length > 0 ? html`<div class="sb-history-bar">${hist.slice(-5).map(h => html`<div class=${'sb-history-item' + (h.selected ? ' active' : '')} onClick=${e => { e.stopPropagation(); this.act.selectHistory(this.id, h.path); }}><video src=${'/workspace/' + h.path} muted preload="metadata" /></div>`)}</div>` : null}
             ${d.summary ? html`<div class="sb-node-summary">${d.summary}</div>` : null}
             <div class="sb-node-actions">
                 <button class="sb-upload-btn" title="工作空间" onClick=${e => { e.stopPropagation(); this.act.upload(this.id); }}>\u{1F4C2}</button>
                 <button class="sb-upload-btn" title="上传" onClick=${e => { e.stopPropagation(); this.act.uploadLocal(this.id); }}>\u{1F4E4}</button>
-                ${d.hasAsset ? html`<button class="sb-upload-btn" title="导出首尾帧" disabled=${d.extracting} onClick=${e => { e.stopPropagation(); this.act.extractFrames(this.id); }}>\u{1F5BC}</button>` : null}
+                ${d.hasAsset ? html`<button class="sb-upload-btn" title="导出首尾帧" disabled=${d.extracting} onClick=${e => { e.stopPropagation(); this.act.extractFrames(this.id); }}>${ICON_FRAME}</button>` : null}
                 <button class="sb-gen-btn sb-gen-video" title="生成" disabled=${d.generating} onClick=${e => { e.stopPropagation(); this.act.generate(this.id); }}>\u{25B6}</button>
             </div>
             <${VfHandle} type="target" position=${Position.Left} id="video-prompt-in" style=${{ top: '15%' }} />
@@ -222,7 +218,7 @@ const AudioShotNode = {
         const d = this.data || {};
         return html`<div class="sb-node sb-node-shot sb-node-audio">
             <button class="sb-node-close" title="删除节点" onClick=${e => { e.stopPropagation(); this.act.del(this.id); }}>✕</button>
-            <div class="sb-node-header"><span class="sb-node-icon">\u{1F3B5}</span><span class="sb-node-title">${d.title || '(未命名)'}</span>${d.duration ? html`<span class="sb-duration">${d.duration}s</span>` : null}</div>
+            <div class="sb-node-header"><span class="sb-node-icon">${ICON_AUDIO}</span><span class="sb-node-title">${d.title || '(未命名)'}</span>${d.duration ? html`<span class="sb-duration">${d.duration}s</span>` : null}</div>
             ${d.assetUrl ? html`<div style="padding:4px 0;cursor:pointer" onClick=${e => { e.stopPropagation(); this.act.preview(this.id); }}><audio src=${d.assetUrl} controls style="width:100%;height:28px"></audio></div>` : null}
             ${d.summary ? html`<div class="sb-node-summary">${d.summary}</div>` : null}
             <div class="sb-node-actions">
@@ -234,6 +230,15 @@ const AudioShotNode = {
         </div>`;
     },
 };
+
+// Shared colored SVG icons for node headers, toolbar, and buttons
+const ICON_TEXT = html`<svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 2h5v2H4v3h2.5v2H4v5H2V2z" fill="#a78bfa"/><path d="M8 2h5l-1 2H9.5L8 2z" fill="#c4b5fd"/><rect x="8" y="5" width="6" height="2" rx="1" fill="#c4b5fd" opacity="0.5"/><rect x="8" y="9" width="5" height="2" rx="1" fill="#c4b5fd" opacity="0.3"/></svg>`;
+const ICON_IMAGE = html`<svg viewBox="0 0 16 16" width="14" height="14"><rect x="1" y="1" width="14" height="14" rx="2" fill="#f472b6" opacity="0.25" stroke="#f472b6" stroke-width="1"/><circle cx="5" cy="6" r="1.5" fill="#f9a8d4"/><path d="M2 13l3.5-4L8 11.5 10.5 8 14 13H2z" fill="#f472b6" opacity="0.6"/></svg>`;
+const ICON_VIDEO = html`<svg viewBox="0 0 16 16" width="14" height="14"><rect x="1" y="3" width="9" height="10" rx="2" fill="#34d399" opacity="0.3" stroke="#34d399" stroke-width="1"/><path d="M11 5.5l4-2v9l-4-2z" fill="#34d399" opacity="0.5"/></svg>`;
+const ICON_AUDIO = html`<svg viewBox="0 0 16 16" width="14" height="14"><path d="M3 6v4a2 2 0 004 0V6a2 2 0 00-4 0z" fill="#818cf8" opacity="0.5"/><path d="M7 5.5A3.5 3.5 0 017 10.5" fill="none" stroke="#818cf8" stroke-width="1.2"/><path d="M9 4a5.5 5.5 0 010 8" fill="none" stroke="#818cf8" stroke-width="1.2" opacity="0.5"/></svg>`;
+const ICON_FRAME = html`<svg viewBox="0 0 16 16" width="14" height="14"><rect x="1" y="1" width="6" height="6" rx="1" fill="#34d399" opacity="0.5"/><rect x="9" y="1" width="6" height="6" rx="1" fill="#34d399" opacity="0.3"/><rect x="1" y="9" width="6" height="6" rx="1" fill="#34d399" opacity="0.3"/><rect x="9" y="9" width="6" height="6" rx="1" fill="#34d399" opacity="0.15"/></svg>`;
+const ICON_FIRST_FRAME = html`<svg viewBox="0 0 16 16" width="14" height="14"><rect x="1" y="1" width="14" height="14" rx="2" fill="#818cf8" opacity="0.2" stroke="#818cf8" stroke-width="0.8"/><rect x="3" y="3" width="4" height="4" rx="1" fill="#818cf8"/><path d="M3 13l4-5v5z" fill="#818cf8" opacity="0.4"/><circle cx="11" cy="8" r="2.5" fill="#a5b4fc" opacity="0.5"/></svg>`;
+const ICON_LAST_FRAME = html`<svg viewBox="0 0 16 16" width="14" height="14"><rect x="1" y="1" width="14" height="14" rx="2" fill="#f472b6" opacity="0.2" stroke="#f472b6" stroke-width="0.8"/><rect x="9" y="3" width="4" height="4" rx="1" fill="#f472b6"/><path d="M3 13l4-5v5z" fill="#f472b6" opacity="0.4"/><circle cx="5" cy="8" r="2.5" fill="#f9a8d4" opacity="0.5"/></svg>`;
 
 const SHOT_NODE_TYPES = { textShot: TextShotNode, imageShot: ImageShotNode, videoShot: VideoShotNode, audioShot: AudioShotNode };
 
@@ -1040,7 +1045,7 @@ const StoryboardApp = {
                 const data = await resp.json();
                 if (data.error) throw new Error(data.error);
                 if (!data.first && !data.last) throw new Error('未能提取到帧图片，请确认视频文件有效');
-                const basePos = { ...vfNode.position };
+                const basePos = { x: vfNode.position.x, y: vfNode.position.y };
                 let idx = 0;
                 if (data.first) {
                     createFrameNode('首帧', data.first.replace('/workspace/', ''), basePos, idx++, nodeId, 'firstFrame');
@@ -2081,10 +2086,10 @@ const StoryboardApp = {
             if (this.nav.level === 'episode') tbBtns.push(html`<button onClick=${() => this.addEntity()} class="sb-tb-btn" title="新建剧集">+ 剧集</button>`);
             if (this.nav.level === 'scene') tbBtns.push(html`<button onClick=${() => this.addEntity()} class="sb-tb-btn" title="新建场景">+ 场景</button>`);
             if (isShotLevel) {
-                tbBtns.push(html`<button onClick=${() => this.addEntity('text')} class="sb-tb-btn" title="添加提示词节点">\u{2728} 提示词</button>`);
-                tbBtns.push(html`<button onClick=${() => this.addEntity('image')} class="sb-tb-btn" title="添加图像生成节点"><svg viewBox="0 0 16 16" width="14" height="14" style="vertical-align:-2px"><rect x="1" y="1" width="14" height="14" rx="2" fill="#f472b6" opacity="0.25"/><rect x="1" y="1" width="14" height="3" rx="1" fill="#f472b6"/><circle cx="5" cy="9" r="2" fill="#fbcfe8"/><path d="M9 7l6 5v2a1 1 0 01-1 1H9z" fill="#f9a8d4" opacity="0.6"/></svg> 图像</button>`);
-                tbBtns.push(html`<button onClick=${() => this.addEntity('video')} class="sb-tb-btn" title="添加视频生成节点">\u{1F3AC} 视频</button>`);
-                tbBtns.push(html`<button onClick=${() => this.addEntity('audio')} class="sb-tb-btn" title="添加音频节点">\u{1F3B5} 音频</button>`);
+                tbBtns.push(html`<button onClick=${() => this.addEntity('text')} class="sb-tb-btn" title="添加提示词节点">${ICON_TEXT} 提示词</button>`);
+                tbBtns.push(html`<button onClick=${() => this.addEntity('image')} class="sb-tb-btn" title="添加图像生成节点">${ICON_IMAGE} 图像</button>`);
+                tbBtns.push(html`<button onClick=${() => this.addEntity('video')} class="sb-tb-btn" title="添加视频生成节点">${ICON_VIDEO} 视频</button>`);
+                tbBtns.push(html`<button onClick=${() => this.addEntity('audio')} class="sb-tb-btn" title="添加音频节点">${ICON_AUDIO} 音频</button>`);
                 tbBtns.push(html`<span class="sb-tb-sep"></span>`);
                 tbBtns.push(html`<button onClick=${this.autoLayout} class="sb-tb-btn" title="自动排列节点布局">\u{1F4CA} 排列</button>`);
                 tbBtns.push(html`<button onClick=${this.fitView} class="sb-tb-btn" title="适配视图显示所有节点">⌚ 适配</button>`);
