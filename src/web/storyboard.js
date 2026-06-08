@@ -154,9 +154,14 @@ const ImageShotNode = {
     render() {
         const d = this.data || {};
         const hist = d.history || [];
+        const iconSvg = d.frameIcon === 'firstFrame'
+            ? html`<svg viewBox="0 0 16 16" width="14" height="14"><rect x="1" y="1" width="14" height="14" rx="2" fill="#818cf8" opacity="0.25"/><rect x="1" y="1" width="14" height="3" rx="1" fill="#818cf8"/><circle cx="5" cy="9" r="2" fill="#c7d2fe"/><path d="M9 7l6 5v2a1 1 0 01-1 1H9z" fill="#a5b4fc" opacity="0.6"/></svg>`
+            : d.frameIcon === 'lastFrame'
+            ? html`<svg viewBox="0 0 16 16" width="14" height="14"><rect x="1" y="1" width="14" height="14" rx="2" fill="#f472b6" opacity="0.25"/><rect x="1" y="1" width="14" height="3" rx="1" fill="#f472b6"/><circle cx="5" cy="9" r="2" fill="#fbcfe8"/><path d="M9 7l6 5v2a1 1 0 01-1 1H9z" fill="#f9a8d4" opacity="0.6"/></svg>`
+            : html`<svg viewBox="0 0 16 16" width="14" height="14"><rect x="1" y="1" width="14" height="14" rx="2" fill="#f472b6" opacity="0.25"/><rect x="1" y="1" width="14" height="3" rx="1" fill="#f472b6"/><circle cx="5" cy="9" r="2" fill="#fbcfe8"/><path d="M9 7l6 5v2a1 1 0 01-1 1H9z" fill="#f9a8d4" opacity="0.6"/></svg>`;
         return html`<div class="sb-node sb-node-shot sb-node-image">
             <button class="sb-node-close" title="删除节点" onClick=${e => { e.stopPropagation(); this.act.del(this.id); }}>✕</button>
-            <div class="sb-node-header"><span class="sb-node-icon">\u{1F5BC}️</span><span class="sb-node-title">${d.title || '(未命名)'}</span></div>
+            <div class="sb-node-header"><span class="sb-node-icon">${iconSvg}</span><span class="sb-node-title">${d.title || '(未命名)'}</span></div>
             ${d.generating ? html`<div class="sb-gen-progress"><span class="sb-spinner"></span><span>${d.genProgress || '生成中...'}</span></div>` : d.assetUrl ? html`<div class="sb-node-thumb" style="cursor:pointer" onClick=${e => { e.stopPropagation(); this.act.preview(this.id); }}><img src=${d.assetUrl} /></div>` : null}
             ${hist.length > 0 ? html`<div class="sb-history-bar">${hist.slice(-5).map(h => html`<div class=${'sb-history-item' + (h.selected ? ' active' : '')} onClick=${e => { e.stopPropagation(); this.act.selectHistory(this.id, h.path); }}><img src=${'/workspace/' + h.path} /></div>`)}</div>` : null}
             ${d.summary ? html`<div class="sb-node-summary">${d.summary}</div>` : null}
@@ -287,6 +292,7 @@ const StoryboardApp = {
                 duration: nt === 'video' ? p.video?.duration : nt === 'audio' ? p.audio?.duration : null,
                 generating: n.data?.generating || false, genProgress: n.data?.genProgress || '',
                 extracting: n.data?.extracting || false,
+                frameIcon: sh?._frameIcon || null,
                 history: (nt === 'image' ? p.image?.history : nt === 'video' ? p.video?.history : nt === 'audio' ? p.audio?.history : []) || [],
             };
             if (nt === 'image' && p.image?.workspaceAsset) nodeData.assetUrl = '/workspace/' + p.image.workspaceAsset;
@@ -991,8 +997,10 @@ const StoryboardApp = {
         function createFrameNode(label, assetPath, basePos, offset, sourceNodeId, frameRole) {
             const sc = currentScene.value;
             const id = uid();
-            const pos = { x: basePos.x + 250, y: basePos.y + offset * 150 };
+            const pos = { x: basePos.x + 250, y: basePos.y - 120 + offset * 240 };
+            const isFrame = frameRole === 'firstFrame' || frameRole === 'lastFrame';
             sc.shots[id] = { ...emptyShot(id, 'image', label), sceneId: nav.sceneId, summary: label };
+            if (isFrame) sc.shots[id]._frameIcon = frameRole;
             sc.shots[id].properties.image.workspaceAsset = assetPath;
             const flowNode = { id, type: 'imageShot', position: pos, data: { ref: id } };
             sc.flow.nodes.push(flowNode);
@@ -2074,7 +2082,7 @@ const StoryboardApp = {
             if (this.nav.level === 'scene') tbBtns.push(html`<button onClick=${() => this.addEntity()} class="sb-tb-btn" title="新建场景">+ 场景</button>`);
             if (isShotLevel) {
                 tbBtns.push(html`<button onClick=${() => this.addEntity('text')} class="sb-tb-btn" title="添加提示词节点">\u{2728} 提示词</button>`);
-                tbBtns.push(html`<button onClick=${() => this.addEntity('image')} class="sb-tb-btn" title="添加图像生成节点">\u{1F5BC} 图像</button>`);
+                tbBtns.push(html`<button onClick=${() => this.addEntity('image')} class="sb-tb-btn" title="添加图像生成节点"><svg viewBox="0 0 16 16" width="14" height="14" style="vertical-align:-2px"><rect x="1" y="1" width="14" height="14" rx="2" fill="#f472b6" opacity="0.25"/><rect x="1" y="1" width="14" height="3" rx="1" fill="#f472b6"/><circle cx="5" cy="9" r="2" fill="#fbcfe8"/><path d="M9 7l6 5v2a1 1 0 01-1 1H9z" fill="#f9a8d4" opacity="0.6"/></svg> 图像</button>`);
                 tbBtns.push(html`<button onClick=${() => this.addEntity('video')} class="sb-tb-btn" title="添加视频生成节点">\u{1F3AC} 视频</button>`);
                 tbBtns.push(html`<button onClick=${() => this.addEntity('audio')} class="sb-tb-btn" title="添加音频节点">\u{1F3B5} 音频</button>`);
                 tbBtns.push(html`<span class="sb-tb-sep"></span>`);
