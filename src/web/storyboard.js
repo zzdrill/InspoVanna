@@ -405,8 +405,8 @@ const StoryboardApp = {
         }
         function deleteEntity(entityId) {
             if (nav.level === 'shot') { saveFlowFromVueFlow(); const sc = currentScene.value; if (!sc) return; delete sc.shots[entityId]; sc.flow.nodes = sc.flow.nodes.filter(n => n.id !== entityId); sc.flow.edges = sc.flow.edges.filter(e => e.source !== entityId && e.target !== entityId); vfRemoveNodes([entityId]); }
-            else if (nav.level === 'episode') { delete sbData.episodes[entityId]; sbData.flow.nodes = sbData.flow.nodes.filter(n => n.id !== entityId); sbData.flow.edges = sbData.flow.edges.filter(e => e.source !== entityId && e.target !== entityId); }
-            else { const ep = currentEpisode.value; if (!ep) return; delete ep.scenes[entityId]; ep.flow.nodes = ep.flow.nodes.filter(n => n.id !== entityId); ep.flow.edges = ep.flow.edges.filter(e => e.source !== entityId && e.target !== entityId); }
+            else if (nav.level === 'episode') { const ep = sbData.episodes[entityId]; if (ep) { const sceneCount = Object.keys(ep.scenes || {}).length; if (sceneCount > 0 && !confirm(`该剧集包含 ${sceneCount} 个场景，删除后不可恢复，确认删除？`)) return; } delete sbData.episodes[entityId]; sbData.flow.nodes = sbData.flow.nodes.filter(n => n.id !== entityId); sbData.flow.edges = sbData.flow.edges.filter(e => e.source !== entityId && e.target !== entityId); }
+            else { const ep = currentEpisode.value; if (!ep) return; const sc = ep.scenes[entityId]; if (sc) { const shotCount = Object.keys(sc.shots || {}).length; if (shotCount > 0 && !confirm(`该场景包含 ${shotCount} 个镜头，删除后不可恢复，确认删除？`)) return; } delete ep.scenes[entityId]; ep.flow.nodes = ep.flow.nodes.filter(n => n.id !== entityId); ep.flow.edges = ep.flow.edges.filter(e => e.source !== entityId && e.target !== entityId); }
             if (editTarget.value && editTarget.value.id === entityId) editTarget.value = null;
             markDirty();
         }
