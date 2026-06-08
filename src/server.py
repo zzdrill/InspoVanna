@@ -1832,18 +1832,24 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
             cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
             ret, frame = cap.read()
             if ret and frame is not None:
-                cv2.imwrite(first_path, frame)
-                rel = os.path.relpath(first_path, ws_path).replace("\\", "/")
-                results["first"] = f"/workspace/{rel}"
+                ok, buf = cv2.imencode('.png', frame)
+                if ok:
+                    with open(first_path, 'wb') as f:
+                        f.write(buf.tobytes())
+                    rel = os.path.relpath(first_path, ws_path).replace("\\", "/")
+                    results["first"] = f"/workspace/{rel}"
 
             # Extract last frame
             if frame_count > 1:
                 cap.set(cv2.CAP_PROP_POS_FRAMES, frame_count - 1)
                 ret, frame = cap.read()
                 if ret and frame is not None:
-                    cv2.imwrite(last_path, frame)
-                    rel = os.path.relpath(last_path, ws_path).replace("\\", "/")
-                    results["last"] = f"/workspace/{rel}"
+                    ok, buf = cv2.imencode('.png', frame)
+                    if ok:
+                        with open(last_path, 'wb') as f:
+                            f.write(buf.tobytes())
+                        rel = os.path.relpath(last_path, ws_path).replace("\\", "/")
+                        results["last"] = f"/workspace/{rel}"
 
             cap.release()
             self._send_json(results)
