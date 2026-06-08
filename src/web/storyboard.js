@@ -999,10 +999,10 @@ const StoryboardApp = {
             return sc ? sc.flow.edges.some(e => e.source === nodeId) : false;
         }
 
-        function createFrameNode(label, assetPath, basePos, offset, sourceNodeId, frameRole) {
+        function createFrameNode(label, assetPath, nodePos, sourceNodeId, frameRole) {
             const sc = currentScene.value;
             const id = uid();
-            const pos = { x: basePos.x + 250, y: basePos.y - 120 + offset * 240 };
+            const pos = { x: nodePos.x, y: nodePos.y };
             const isFrame = frameRole === 'firstFrame' || frameRole === 'lastFrame';
             sc.shots[id] = { ...emptyShot(id, 'image', label), sceneId: nav.sceneId, summary: label };
             if (isFrame) sc.shots[id]._frameIcon = frameRole;
@@ -1047,11 +1047,11 @@ const StoryboardApp = {
                 if (!data.first && !data.last) throw new Error('未能提取到帧图片，请确认视频文件有效');
                 const bx = vfNode.position.x, by = vfNode.position.y;
                 if (data.first && data.last) {
-                    createFrameNode('首帧', data.first.replace('/workspace/', ''), { x: bx + 250, y: by - 140 }, 0, nodeId, 'firstFrame');
-                    createFrameNode('尾帧', data.last.replace('/workspace/', ''), { x: bx + 250, y: by + 140 }, 0, nodeId, 'lastFrame');
+                    createFrameNode('首帧', data.first.replace('/workspace/', ''), { x: bx + 250, y: by - 140 }, nodeId, 'firstFrame');
+                    createFrameNode('尾帧', data.last.replace('/workspace/', ''), { x: bx + 250, y: by + 140 }, nodeId, 'lastFrame');
                 } else {
-                    if (data.first) createFrameNode('首帧', data.first.replace('/workspace/', ''), { x: bx + 250, y: by }, 0, nodeId, 'firstFrame');
-                    if (data.last) createFrameNode('尾帧', data.last.replace('/workspace/', ''), { x: bx + 250, y: by }, 0, nodeId, 'lastFrame');
+                    if (data.first) createFrameNode('首帧', data.first.replace('/workspace/', ''), { x: bx + 250, y: by }, nodeId, 'firstFrame');
+                    if (data.last) createFrameNode('尾帧', data.last.replace('/workspace/', ''), { x: bx + 250, y: by }, nodeId, 'lastFrame');
                 }
                 window.showToast && window.showToast('已导出首尾帧并创建图像节点', 'success');
             } catch (e) {
