@@ -2041,17 +2041,26 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
         if not script_text.strip():
             self._send_error_json("剧本内容为空")
             return
+        if len(script_text) > 50000:
+            self._send_error_json(f"剧本内容过长（{len(script_text)} 字），请限制在 50000 字以内")
+            return
+        if len(script_text.split('\n')) > 2000:
+            self._send_error_json(f"剧本行数过多（{len(script_text.split(chr(10)))} 行），请限制在 2000 行以内")
+            return
 
         # --- Mode: episodes ---
         if mode == "episodes":
+            script_lines = script_text.split('\n')
+            numbered_text = '\n'.join(f'{i+1}: {line}' for i, line in enumerate(script_lines))
             system_prompt = (
-                "你是一个专业的剧本分析师。请分析以下剧本文本，将其拆分为剧集(Episode)并提取角色、道具和场景。\n"
+                "你是一个专业的剧本分析师。请分析以下带行号的剧本文本，将其拆分为剧集(Episode)并提取角色、道具和场景。\n"
                 "请严格按照以下JSON格式返回结果，不要包含任何其他文字说明：\n"
                 "{\n"
                 '  "episodes": [{\n'
                 '    "title": "剧集标题",\n'
                 '    "summary": "剧集概要(50-100字)",\n'
-                '    "text": "该剧集对应的原文内容(完整保留)",\n'
+                '    "startLine": 1,\n'
+                '    "endLine": 50,\n'
                 '    "tags": ["标签"]\n'
                 '  }],\n'
                 '  "characters": [{ "name": "角色名", "description": "外貌服装等详细描述", "tags": ["主角"] }],\n'
@@ -2059,37 +2068,67 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
                 '  "scenes": [{ "name": "场景名", "description": "场景环境描述(地点/氛围/光线/建筑风格)", "category": "室外|室内|科幻|古代", "tags": [] }]\n'
                 "}\n"
                 "要求：\n"
-                "- 每个episode的text字段必须包含该集的完整原文\n"
+                "- 每个episode的startLine和endLine必须准确对应该剧集在原文中的行号范围(1-based, inclusive)\n"
+                "- 所有episode的行号范围应连续覆盖全文，不重叠不遗漏\n"
                 "- 角色描述需足够详细以生成参考图\n"
                 "- 场景描述需包含环境、建筑风格、光线氛围等细节以生成参考图\n"
                 "- 保持JSON格式严格正确"
             )
-            user_text = f"请分析以下剧本并拆分剧集：\n\n---\n{script_text}\n---"
-            llm_json_schema = {"episodes": [], "characters": [], "props": [], "scenes": []}
-            self._call_llm_and_respond(model, system_prompt, user_text, llm_json_schema)
+            user_text = f"请分析以下带行号的剧本并拆分剧集，注意startLine和endLine要准确对应行号：\n\n---\n{numbered_text}\n---"
+            parsed = self._call_llm_and_get_result(model, system_prompt, user_text)
+            if parsed is None:
+                return
+            # Reconstruct text from line ranges
+            for ep in parsed.get("episodes", []):
+                start = ep.get("startLine", 1) - 1  # convert to 0-based
+                end = ep.get("endLine", len(script_lines))
+                if isinstance(start, int) and isinstance(end, int) and 0 <= start < len(script_lines):
+                    ep["text"] = "\n".join(script_lines[max(0, start):min(end, len(script_lines))])
+                else:
+                    ep["text"] = script_text
+                # Remove line-range fields from output
+                ep.pop("startLine", None)
+                ep.pop("endLine", None)
+            self._send_json({"ok": True, "source": "llm", "result": parsed})
             return
 
         # --- Mode: scenes ---
         if mode == "scenes":
+            script_lines = script_text.split('\n')
+            numbered_text = '\n'.join(f'{i+1}: {line}' for i, line in enumerate(script_lines))
             system_prompt = (
-                "你是一个专业的剧本分析师。请分析以下剧集文本，将其拆分为场景(Scene)。\n"
+                "你是一个专业的剧本分析师。请分析以下带行号的剧集文本，将其拆分为场景(Scene)。\n"
                 "请严格按照以下JSON格式返回结果，不要包含任何其他文字说明：\n"
                 "{\n"
                 '  "scenes": [{\n'
                 '    "title": "场景标题",\n'
                 '    "summary": "场景描述(30-80字)",\n'
-                '    "text": "该场景对应的原文内容(完整保留)",\n'
+                '    "startLine": 1,\n'
+                '    "endLine": 20,\n'
                 '    "tags": ["标签"]\n'
                 '  }]\n'
                 "}\n"
                 "要求：\n"
                 "- 场景应根据地点、时间、氛围的变化来划分\n"
-                "- 每个scene的text字段必须包含该场景的完整原文\n"
+                "- 每个scene的startLine和endLine必须准确对应该场景在原文中的行号范围(1-based, inclusive)\n"
+                "- 所有scene的行号范围应连续覆盖全文，不重叠不遗漏\n"
                 "- 保持JSON格式严格正确"
             )
-            user_text = f"请分析以下剧集文本并拆分场景：\n\n---\n{script_text}\n---"
-            llm_json_schema = {"scenes": []}
-            self._call_llm_and_respond(model, system_prompt, user_text, llm_json_schema)
+            user_text = f"请分析以下带行号的剧集文本并拆分场景，注意startLine和endLine要准确对应行号：\n\n---\n{numbered_text}\n---"
+            parsed = self._call_llm_and_get_result(model, system_prompt, user_text)
+            if parsed is None:
+                return
+            # Reconstruct text from line ranges
+            for sc in parsed.get("scenes", []):
+                start = sc.get("startLine", 1) - 1
+                end = sc.get("endLine", len(script_lines))
+                if isinstance(start, int) and isinstance(end, int) and 0 <= start < len(script_lines):
+                    sc["text"] = "\n".join(script_lines[max(0, start):min(end, len(script_lines))])
+                else:
+                    sc["text"] = script_text
+                sc.pop("startLine", None)
+                sc.pop("endLine", None)
+            self._send_json({"ok": True, "source": "llm", "result": parsed})
             return
 
         # --- Mode: shots ---
@@ -2156,8 +2195,8 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
         except Exception as e:
             self._send_error_json(str(e), 500)
 
-    def _call_llm_and_respond(self, model, system_prompt, user_text, expected_schema):
-        """Call ARK Responses API, parse JSON response, and send result."""
+    def _call_llm_and_get_result(self, model, system_prompt, user_text):
+        """Call ARK Responses API, parse JSON response, return dict or None (error already sent)."""
         import socket
         payload = {
             "model": model,
@@ -2183,25 +2222,35 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
                             text += c.get("text", "")
             if not text.strip():
                 self._send_error_json("LLM 未返回有效内容")
-                return
+                return None
             json_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', text)
             json_str = json_match.group(1) if json_match else text
-            parsed = json.loads(json_str.strip())
-            self._send_json({"ok": True, "source": "llm", "result": parsed})
+            return json.loads(json_str.strip())
         except (socket.timeout, TimeoutError):
             self._send_error_json("AI 分析超时，请缩短剧本后重试", 504)
+            return None
         except urllib.error.URLError as e:
             if "timed out" in str(e.reason).lower():
                 self._send_error_json("AI 分析超时，请缩短剧本后重试", 504)
             else:
                 self._send_error_json(f"网络错误: {str(e.reason)}", 502)
+            return None
         except urllib.error.HTTPError as e:
             err_body = e.read().decode("utf-8", errors="replace")
             self._send_error_json(f"ARK API error: {err_body}", 502)
+            return None
         except json.JSONDecodeError:
             self._send_error_json("LLM 返回的JSON格式无效，请重试")
+            return None
         except Exception as e:
             self._send_error_json(f"分析失败: {str(e)}")
+            return None
+
+    def _call_llm_and_respond(self, model, system_prompt, user_text, expected_schema):
+        """Call ARK Responses API, parse JSON response, and send result."""
+        parsed = self._call_llm_and_get_result(model, system_prompt, user_text)
+        if parsed is not None:
+            self._send_json({"ok": True, "source": "llm", "result": parsed})
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
 

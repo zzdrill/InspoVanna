@@ -2373,16 +2373,22 @@ const StoryboardApp = {
         async function startScriptAnalysis() {
             const text = scriptState.scriptText.trim();
             if (!text) { scriptState.error = '请输入或上传剧本内容'; return; }
+            const charCount = text.length;
+            const lineCount = text.split('\n').length;
+            if (charCount > 30000 && !confirm(`剧本内容较长（${charCount} 字 / ${lineCount} 行），分析可能需要较长时间。是否继续？`)) {
+                return;
+            }
             scriptState.step = 'analyzing'; scriptState.progress = '正在连接 AI 服务...'; scriptState.error = '';
             // Progress simulation
-            const progressHints = ['正在发送剧本至 AI...', 'AI 正在分析剧本结构...', 'AI 正在生成分析结果（可能需要1-3分钟）...', '仍在等待 AI 响应，请耐心等待...'];
+            const estimatedMin = Math.max(1, Math.ceil(charCount / 8000));
+            const progressHints = ['正在发送剧本至 AI...', 'AI 正在分析剧本结构...', `预计需要 ${estimatedMin}-${estimatedMin + 1} 分钟，请耐心等待...`, '仍在等待 AI 响应，请耐心等待...', '分析仍在进行中，大型剧本可能需要更长时间...'];
             let hintIdx = 0;
             const progressTimer = setInterval(() => {
                 if (hintIdx < progressHints.length) { scriptState.progress = progressHints[hintIdx++]; }
-            }, 15000);
-            // 5 minute timeout
+            }, 20000);
+            // 10 minute timeout (aligned with backend)
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 300000);
+            const timeoutId = setTimeout(() => controller.abort(), 600000);
             try {
                 const r = await fetch('/api/script/analyze', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2402,7 +2408,7 @@ const StoryboardApp = {
                 }
                 scriptState.step = 'preview';
             } catch (e) {
-                if (e.name === 'AbortError') { scriptState.error = '分析超时（5分钟），请缩短剧本后重试'; }
+                if (e.name === 'AbortError') { scriptState.error = '分析超时（10分钟），请缩短剧本后重试'; }
                 else { scriptState.error = e.message; }
                 scriptState.step = 'idle';
             } finally { clearInterval(progressTimer); clearTimeout(timeoutId); }
@@ -3292,11 +3298,13 @@ const StoryboardApp = {
                                             </div>
                                             ${this.scriptState.filename ? html`<p style="font-size:12px;color:var(--text-muted);margin:0">已选择: ${this.scriptState.filename}</p>` : null}
                                             <textarea class="sb-imp-textarea" value=${this.scriptState.scriptText} onInput=${e => { this.scriptState.scriptText = e.target.value; }} rows="8" placeholder="在此粘贴或输入剧本内容..."></textarea>
+                                            <div style="font-size:11px;color:var(--text-muted);text-align:right;margin-top:2px">${this.scriptState.scriptText.length} 字 / ${this.scriptState.scriptText.split('\n').length} 行</div>
                                         </div>
                                     ` : html`
                                         <div class="sb-imp-section">
                                             <label>${this.scriptState.level === 'scenes' ? '剧集文本（自动填充，可编辑）' : '场景文本（自动填充，可编辑）'}</label>
                                             <textarea class="sb-imp-textarea" value=${this.scriptState.scriptText} onInput=${e => { this.scriptState.scriptText = e.target.value; }} rows="10" placeholder="文本内容..."></textarea>
+                                            <div style="font-size:11px;color:var(--text-muted);text-align:right;margin-top:2px">${this.scriptState.scriptText.length} 字 / ${this.scriptState.scriptText.split('\n').length} 行</div>
                                         </div>
                                     `}
                                     ${this.textModels.length > 1 ? html`
