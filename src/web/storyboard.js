@@ -2419,6 +2419,23 @@ const StoryboardApp = {
                         }
                     }
                 }
+                // Process any remaining data in buffer after stream ends
+                if (buffer.trim()) {
+                    const remainingLines = buffer.split('\n');
+                    for (const line of remainingLines) {
+                        if (line.startsWith('event: ')) {
+                            currentEvent = line.slice(7).trim();
+                        } else if (line.startsWith('data: ')) {
+                            try {
+                                const d = JSON.parse(line.slice(6));
+                                if (currentEvent === 'result') finalResult = d;
+                                else if (currentEvent === 'error') throw new Error(d.error || '分析失败');
+                            } catch (pe) {
+                                if (pe.message && !pe.message.includes('JSON')) throw pe;
+                            }
+                        }
+                    }
+                }
                 if (!finalResult) throw new Error('未收到分析结果');
                 scriptState.source = finalResult.source || 'llm';
                 scriptState.result = finalResult.result;
