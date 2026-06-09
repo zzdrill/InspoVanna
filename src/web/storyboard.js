@@ -2393,49 +2393,55 @@ const StoryboardApp = {
                 const decoder = new TextDecoder();
                 let buffer = '';
                 let currentEvent = '';
+                let currentData = '';
                 let finalResult = null;
+                function processSseEvent() {
+                    if (!currentData.trim()) return;
+                    try {
+                        const d = JSON.parse(currentData);
+                        if (currentEvent === 'stage') {
+                            scriptState.progress = d.text || '';
+                        } else if (currentEvent === 'result') {
+                            finalResult = d;
+                        } else if (currentEvent === 'error') {
+                            throw new Error(d.error || '分析失败');
+                        }
+                    } catch (pe) {
+                        if (pe.message && !pe.message.includes('JSON')) throw pe;
+                    }
+                    currentData = '';
+                }
                 while (true) {
                     const { done, value } = await reader.read();
                     if (done) break;
                     buffer += decoder.decode(value, { stream: true });
                     const lines = buffer.split('\n');
-                    buffer = lines.pop(); // keep incomplete line
+                    buffer = lines.pop();
                     for (const line of lines) {
                         if (line.startsWith('event: ')) {
+                            processSseEvent(); // flush previous event
                             currentEvent = line.slice(7).trim();
                         } else if (line.startsWith('data: ')) {
-                            try {
-                                const d = JSON.parse(line.slice(6));
-                                if (currentEvent === 'stage') {
-                                    scriptState.progress = d.text || '';
-                                } else if (currentEvent === 'result') {
-                                    finalResult = d;
-                                } else if (currentEvent === 'error') {
-                                    throw new Error(d.error || '分析失败');
-                                }
-                            } catch (pe) {
-                                if (pe.message && !pe.message.includes('JSON')) throw pe;
-                            }
+                            currentData += line.slice(6);
+                        } else if (line.trim() === '') {
+                            processSseEvent(); // blank line = event boundary
                         }
                     }
                 }
-                // Process any remaining data in buffer after stream ends
+                // Process remaining buffer
                 if (buffer.trim()) {
-                    const remainingLines = buffer.split('\n');
-                    for (const line of remainingLines) {
+                    for (const line of buffer.split('\n')) {
                         if (line.startsWith('event: ')) {
+                            processSseEvent();
                             currentEvent = line.slice(7).trim();
                         } else if (line.startsWith('data: ')) {
-                            try {
-                                const d = JSON.parse(line.slice(6));
-                                if (currentEvent === 'result') finalResult = d;
-                                else if (currentEvent === 'error') throw new Error(d.error || '分析失败');
-                            } catch (pe) {
-                                if (pe.message && !pe.message.includes('JSON')) throw pe;
-                            }
+                            currentData += line.slice(6);
+                        } else if (line.trim() === '') {
+                            processSseEvent();
                         }
                     }
                 }
+                processSseEvent(); // flush last event
                 if (!finalResult) throw new Error('未收到分析结果');
                 scriptState.source = finalResult.source || 'llm';
                 scriptState.result = finalResult.result;
