@@ -1654,13 +1654,34 @@ const StoryboardApp = {
 
         // --- Interactive Script Writing (交互式剧本创作) ---
         const screenwriterState = reactive({
-            show: false, step: 'chat',  // 'chat' | 'preview'
+            show: false, step: 'chat',  // 'chat' | 'preview' | 'archives'
             messages: [], input: '', loading: false,
             ready: false,        // LLM 已输出 [READY_TO_WRITE]
             generating: false,   // 生成剧本调用进行中
             screenplay: '', model: '', error: '',
+            // 对话存档
+            archives: [],           // [{id, name, date, messageCount, params}]
+            currentArchiveId: '',   // 当前加载的存档 ID
+            archiveName: '',        // 存档名称
+            autoSaveTimer: null,    // 自动保存防抖定时器
+            // 续写模式
+            screenplayId: '',       // 当前关联的剧本库条目 ID
+            existingScreenplay: '', // 已有剧本全文（续写时注入提示词）
         });
-        const SW_CHAT_SYSTEM = `你是 InspoVanna StoryBoard 的资深编剧助手，专门帮助用户从一个模糊的故事点子出发，逐步打磨成一个结构完整、可拍摄的故事。
+        const swParams = reactive({
+            duration: '',       // '1-3min' | '3-5min' | '5-10min' | '10+min'
+            episodeCount: '',   // '' | '1' | '2' | '3' | '4' | '5' | '6+'
+            genre: '',          // 自由文本（可选）
+            tone: '',           // 下拉选择（可选）
+            smartMode: true,    // 智能模式：由大模型判断集数和时长
+        });
+        const screenplayLibState = reactive({
+            show: false,
+            screenplays: [],    // [{id, name, date, episodeCount, source}]
+            loading: false,
+        });
+        // --- System prompts ---
+        const SW_CHAT_SYSTEM_BASE = `你是 InspoVanna StoryBoard 的资深编剧助手，专门帮助用户从一个模糊的故事点子出发，逐步打磨成一个结构完整、可拍摄的故事。
 
 你的工作方式：
 1. 用户会先描述一个初步的故事想法。你要像专业编剧一样，通过提问把故事逐步具体化。
@@ -1681,7 +1702,7 @@ const StoryboardApp = {
 6. 不要在信息明显不足时过早输出该标记。一旦输出过一次，只要后续信息仍然充分，可在后续回复中继续输出。
 
 请用中文、简洁专业地交流。`;
-        const SW_WRITE_SYSTEM = `你是一名专业编剧。下面是用户与编剧助手之间关于一个故事的完整讨论。请你基于这段讨论中确定的所有设定，将其改写成一部结构规范、可用于后续拆分剧集/场景的中文剧本。
+        const SW_WRITE_SYSTEM_BASE = `你是一名专业编剧。下面是用户与编剧助手之间关于一个故事的完整讨论。请你基于这段讨论中确定的所有设定，将其改写成一部结构规范、可用于后续拆分剧集/场景的中文剧本。
 
 输出要求（严格遵守）：
 1. 直接输出剧本正文，不要任何解释、前言、客套话或 Markdown 代码块包裹。
@@ -1696,14 +1717,58 @@ const StoryboardApp = {
 7. 全文使用中文，保持专业剧本的书面语风格。
 
 请直接开始输出剧本。`;
+
+        function buildChatSystemPrompt(params, existingText) {
+            let prompt = SW_CHAT_SYSTEM_BASE;
+            if (!params.smartMode) {
+                const extras = [];
+                if (params.duration) extras.push(`- 单集时长：${params.duration}`);
+                if (params.episodeCount === '1') extras.push('- 集数：1 集完整故事');
+                else if (params.episodeCount === '6+') extras.push('- 集数：6 集以上系列');
+                else if (params.episodeCount) extras.push(`- 集数：${params.episodeCount} 集`);
+                if (extras.length) prompt += '\n\n---\n用户设定的创作参数：\n' + extras.join('\n') + '\n请在创作讨论和最终剧本中严格遵循以上参数要求。';
+            } else {
+                prompt += '\n\n---\n【智能模式】用户未指定具体时长和集数，请根据故事内容自行判断最合适的单集时长和总集数，并在提问中逐步确认。';
+            }
+            if (existingText) {
+                prompt += '\n\n【续写模式】\n以下是已有剧本内容：\n---\n' + existingText + '\n---\n请在已有基础上继续创作，保持角色性格、世界观、叙事风格一致。';
+            }
+            return prompt;
+        }
+        function buildWriteSystemPrompt(params, existingText) {
+            let prompt = SW_WRITE_SYSTEM_BASE;
+            if (!params.smartMode) {
+                const extras = [];
+                if (params.duration) extras.push(`- 单集时长：${params.duration}，请据此控制场景数量和每场戏的详略程度`);
+                if (params.episodeCount === '1') extras.push('- 1 集完整故事，需要有完整的开端、发展、高潮、结局');
+                else if (params.episodeCount === '6+') extras.push('- 6 集以上系列，注意为后续集数留悬念和伏笔');
+                else if (params.episodeCount) extras.push(`- 共 ${params.episodeCount} 集`);
+                if (extras.length) prompt += '\n\n---\n创作参数要求：\n' + extras.join('\n');
+            } else {
+                prompt += '\n\n---\n【智能模式】请根据讨论中的故事内容，自行确定最合适的单集时长和总集数。';
+            }
+            if (existingText) {
+                prompt += '\n\n【续写要求】\n请基于已有剧本继续创作。已有剧本：\n---\n' + existingText + '\n---\n保持角色性格、世界观、叙事风格一致。仅输出续写的新剧本内容（新场景），不要重复已有内容。';
+            }
+            return prompt;
+        }
         function openScreenwriter() {
             Object.assign(screenwriterState, {
                 show: true, step: 'chat', messages: [], input: '',
                 loading: false, ready: false, generating: false,
                 screenplay: '', error: '', model: textModels[0] || '',
+                archives: [], currentArchiveId: '', archiveName: '',
+                autoSaveTimer: null, screenplayId: '', existingScreenplay: '',
             });
+            Object.assign(swParams, { duration: '', episodeCount: '', genre: '', tone: '', smartMode: true });
+            loadConversationArchives();
+            loadScreenplayList();
         }
-        function closeScreenwriter() { screenwriterState.show = false; }
+        function closeScreenwriter() {
+            autoSaveConversation();
+            if (screenwriterState.autoSaveTimer) { clearTimeout(screenwriterState.autoSaveTimer); screenwriterState.autoSaveTimer = null; }
+            screenwriterState.show = false;
+        }
         async function sendScreenwriterMessage() {
             const msg = screenwriterState.input.trim();
             if (!msg || screenwriterState.loading) return;
@@ -1714,7 +1779,8 @@ const StoryboardApp = {
                 const apiKey = window.state?.arkApiKey;
                 if (!apiKey) throw new Error('请先在设置中配置 API Key');
                 const model = screenwriterState.model || textModels[0] || 'doubao-seed-2-0-pro-260215';
-                const apiMessages = [{ role: 'system', content: SW_CHAT_SYSTEM }, ...screenwriterState.messages.slice(-30)];
+                const systemContent = buildChatSystemPrompt(swParams, screenwriterState.existingScreenplay || null);
+                const apiMessages = [{ role: 'system', content: systemContent }, ...screenwriterState.messages.slice(-30)];
                 const r = await fetch('/api/ark/chat', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ model, messages: apiMessages })
@@ -1730,7 +1796,7 @@ const StoryboardApp = {
                 screenwriterState.messages.push({ role: 'assistant', content: reply || '（无回复）' });
             } catch (e) {
                 screenwriterState.messages.push({ role: 'assistant', content: '❌ ' + e.message });
-            } finally { screenwriterState.loading = false; }
+            } finally { screenwriterState.loading = false; autoSaveConversation(); }
         }
         async function generateScreenplay() {
             if (screenwriterState.generating) return;
@@ -1748,8 +1814,9 @@ const StoryboardApp = {
                 const transcript = screenwriterState.messages
                     .map(m => (m.role === 'user' ? '用户' : '编剧助手') + '：' + m.content)
                     .join('\n\n');
+                const systemContent = buildWriteSystemPrompt(swParams, screenwriterState.existingScreenplay || null);
                 const apiMessages = [
-                    { role: 'system', content: SW_WRITE_SYSTEM },
+                    { role: 'system', content: systemContent },
                     { role: 'user', content: '以下是完整讨论：\n\n' + transcript + '\n\n请基于以上讨论输出完整剧本。' },
                 ];
                 const r = await fetch('/api/ark/chat', {
@@ -1761,7 +1828,6 @@ const StoryboardApp = {
                 const sp = data.choices?.[0]?.message?.content || data.output?.[0]?.content?.[0]?.text || '';
                 if (!sp.trim()) throw new Error('生成结果为空，请重试');
                 screenwriterState.screenplay = sp.trim();
-                screenwriterState.step = 'preview';
             } catch (e) {
                 screenwriterState.error = e.name === 'AbortError' ? '❌ 生成超时（5分钟），请重试' : '❌ ' + e.message;
             } finally { clearTimeout(timeoutId); screenwriterState.generating = false; }
@@ -1792,6 +1858,267 @@ const StoryboardApp = {
             } catch (e) {
                 window.showToast && window.showToast('保存失败: ' + e.message, 'error');
             }
+        }
+
+        // --- Conversation Archives (对话存档) ---
+        async function loadConversationArchives() {
+            if (!projectName.value) return;
+            try {
+                const dir = projectName.value + '/Storyboard/conversations';
+                const r = await fetch('/api/workspace/browse?path=' + encodeURIComponent(dir));
+                if (!r.ok) { screenwriterState.archives = []; return; }
+                const data = await r.json();
+                const files = (data.files || []).filter(f => f.name.endsWith('.json'));
+                const archives = [];
+                for (const f of files) {
+                    try {
+                        const fr = await fetch('/api/workspace/read?path=' + encodeURIComponent(dir + '/' + f.name));
+                        if (!fr.ok) continue;
+                        const fd = await fr.json();
+                        const content = typeof fd.content === 'string' ? JSON.parse(fd.content) : fd.content;
+                        if (content.meta) {
+                            archives.push({
+                                id: content.meta.id, name: content.meta.name || content.meta.id,
+                                date: content.meta.updatedAt || content.meta.createdAt || f.modified,
+                                messageCount: content.meta.messageCount || (content.messages || []).length,
+                                params: content.params || {}, filename: f.name,
+                            });
+                        }
+                    } catch (_) {}
+                }
+                archives.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+                screenwriterState.archives = archives;
+            } catch (_) { screenwriterState.archives = []; }
+        }
+        async function saveConversationArchive() {
+            if (!projectName.value || screenwriterState.messages.length === 0) return;
+            try {
+                const dir = projectName.value + '/Storyboard/conversations';
+                await ensureDir(dir);
+                const now = new Date().toISOString();
+                const id = screenwriterState.currentArchiveId || ('conv-' + now.replace(/[:.]/g, '-'));
+                const name = screenwriterState.archiveName || ('对话 ' + now.slice(0, 16).replace('T', ' '));
+                const archive = {
+                    meta: { id, name, createdAt: screenwriterState.currentArchiveId ? undefined : now, updatedAt: now, messageCount: screenwriterState.messages.length },
+                    params: { ...swParams },
+                    messages: [...screenwriterState.messages],
+                    ready: screenwriterState.ready,
+                    screenplayId: screenwriterState.screenplayId || '',
+                };
+                if (!archive.meta.createdAt) archive.meta.createdAt = now;
+                const filename = id + '.json';
+                const r = await fetch('/api/workspace/save-text', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: JSON.stringify(archive, null, 2), filename, subdir: dir })
+                });
+                if (r.ok) {
+                    screenwriterState.currentArchiveId = id;
+                    screenwriterState.archiveName = name;
+                    window.showToast && window.showToast('对话已保存', 'success');
+                }
+            } catch (_) {}
+        }
+        function autoSaveConversation() {
+            if (screenwriterState.autoSaveTimer) clearTimeout(screenwriterState.autoSaveTimer);
+            screenwriterState.autoSaveTimer = setTimeout(() => {
+                if (screenwriterState.messages.length > 0 && screenwriterState.currentArchiveId) {
+                    saveConversationArchive();
+                }
+            }, 3000);
+        }
+        async function loadConversationArchive(id) {
+            if (!projectName.value) return;
+            try {
+                const dir = projectName.value + '/Storyboard/conversations';
+                const filename = id + '.json';
+                const r = await fetch('/api/workspace/read?path=' + encodeURIComponent(dir + '/' + filename));
+                if (!r.ok) return;
+                const data = await r.json();
+                const archive = typeof data.content === 'string' ? JSON.parse(data.content) : data.content;
+                screenwriterState.messages = archive.messages || [];
+                screenwriterState.ready = archive.ready || false;
+                screenwriterState.currentArchiveId = archive.meta?.id || id;
+                screenwriterState.archiveName = archive.meta?.name || '';
+                screenwriterState.screenplayId = archive.screenplayId || '';
+                if (archive.params) Object.assign(swParams, archive.params);
+                // 加载关联的已有剧本（续写模式）
+                if (archive.screenplayId) {
+                    await loadExistingScreenplayText(archive.screenplayId);
+                } else {
+                    screenwriterState.existingScreenplay = '';
+                }
+                screenwriterState.step = 'chat';
+            } catch (_) {}
+        }
+        async function deleteConversationArchive(id) {
+            if (!confirm('确定删除该对话存档？')) return;
+            if (!projectName.value) return;
+            try {
+                const dir = projectName.value + '/Storyboard/conversations';
+                await fetch('/api/workspace/delete', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: dir + '/' + id + '.json' })
+                });
+            } catch (_) {}
+            loadConversationArchives();
+        }
+
+        // --- Screenplay Library (剧本库) ---
+        async function loadScreenplayList() {
+            if (!projectName.value) { screenplayLibState.screenplays = []; return; }
+            try {
+                const dir = projectName.value + '/Storyboard/screenplays';
+                const r = await fetch('/api/workspace/browse?path=' + encodeURIComponent(dir));
+                if (!r.ok) { screenplayLibState.screenplays = []; return; }
+                const data = await r.json();
+                const files = (data.files || []).filter(f => f.name.endsWith('.json'));
+                const list = [];
+                for (const f of files) {
+                    try {
+                        const fr = await fetch('/api/workspace/read?path=' + encodeURIComponent(dir + '/' + f.name));
+                        if (!fr.ok) continue;
+                        const fd = await fr.json();
+                        const content = typeof fd.content === 'string' ? JSON.parse(fd.content) : fd.content;
+                        if (content.meta) {
+                            list.push({
+                                id: content.meta.id, name: content.meta.name || content.meta.id,
+                                date: content.meta.updatedAt || content.meta.createdAt || f.modified,
+                                episodeCount: (content.episodes || []).length,
+                                source: content.meta.source || 'unknown',
+                                filename: f.name,
+                            });
+                        }
+                    } catch (_) {}
+                }
+                list.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+                screenplayLibState.screenplays = list;
+            } catch (_) { screenplayLibState.screenplays = []; }
+        }
+        function openScreenplayLib() {
+            loadScreenplayList();
+            screenplayLibState.show = true;
+        }
+        function closeScreenplayLib() { screenplayLibState.show = false; }
+        async function saveScreenplayToLib(text, params, source) {
+            if (!projectName.value || !text.trim()) return;
+            try {
+                const dir = projectName.value + '/Storyboard/screenplays';
+                await ensureDir(dir);
+                const now = new Date().toISOString();
+                const id = screenwriterState.screenplayId || ('sp-' + now.replace(/[:.]/g, '-'));
+                const name = (params.genre || '剧本') + ' ' + now.slice(0, 10);
+                const sp = {
+                    meta: { id, name, createdAt: now, updatedAt: now, source: source || 'generated' },
+                    params: { ...params },
+                    episodes: [{ title: '全部', content: text }],
+                    fullText: text,
+                };
+                const filename = id + '.json';
+                await fetch('/api/workspace/save-text', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: JSON.stringify(sp, null, 2), filename, subdir: dir })
+                });
+                screenwriterState.screenplayId = id;
+                window.showToast && window.showToast('已保存到剧本库', 'success');
+                loadScreenplayList();
+            } catch (e) {
+                window.showToast && window.showToast('保存到剧本库失败: ' + e.message, 'error');
+            }
+        }
+        async function appendToScreenplay(screenplayId, newText) {
+            if (!projectName.value || !newText.trim()) return;
+            try {
+                const dir = projectName.value + '/Storyboard/screenplays';
+                const r = await fetch('/api/workspace/read?path=' + encodeURIComponent(dir + '/' + screenplayId + '.json'));
+                if (!r.ok) return;
+                const data = await r.json();
+                const sp = typeof data.content === 'string' ? JSON.parse(data.content) : data.content;
+                const epTitle = '第' + ((sp.episodes || []).length + 1) + '部分';
+                sp.episodes = sp.episodes || [];
+                sp.episodes.push({ title: epTitle, content: newText.trim() });
+                sp.fullText = (sp.fullText || '') + '\n\n' + newText.trim();
+                sp.meta.updatedAt = new Date().toISOString();
+                await fetch('/api/workspace/save-text', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: JSON.stringify(sp, null, 2), filename: screenplayId + '.json', subdir: dir })
+                });
+                window.showToast && window.showToast('已追加到剧本库', 'success');
+            } catch (e) {
+                window.showToast && window.showToast('追加失败: ' + e.message, 'error');
+            }
+        }
+        async function loadExistingScreenplayText(screenplayId) {
+            if (!projectName.value || !screenplayId) { screenwriterState.existingScreenplay = ''; return; }
+            try {
+                const dir = projectName.value + '/Storyboard/screenplays';
+                const r = await fetch('/api/workspace/read?path=' + encodeURIComponent(dir + '/' + screenplayId + '.json'));
+                if (!r.ok) { screenwriterState.existingScreenplay = ''; return; }
+                const data = await r.json();
+                const sp = typeof data.content === 'string' ? JSON.parse(data.content) : data.content;
+                screenwriterState.existingScreenplay = sp.fullText || '';
+            } catch (_) { screenwriterState.existingScreenplay = ''; }
+        }
+        async function startContinueWriting(screenplayId) {
+            if (!projectName.value) return;
+            try {
+                const dir = projectName.value + '/Storyboard/screenplays';
+                const r = await fetch('/api/workspace/read?path=' + encodeURIComponent(dir + '/' + screenplayId + '.json'));
+                if (!r.ok) return;
+                const data = await r.json();
+                const sp = typeof data.content === 'string' ? JSON.parse(data.content) : data.content;
+                screenwriterState.existingScreenplay = sp.fullText || '';
+                screenwriterState.screenplayId = screenplayId;
+                if (sp.params) Object.assign(swParams, sp.params);
+                screenwriterState.step = 'chat';
+                screenwriterState.messages = [];
+                screenwriterState.ready = false;
+                screenwriterState.currentArchiveId = '';
+                screenwriterState.archiveName = '';
+                screenplayLibState.show = false;
+            } catch (_) {}
+        }
+        async function deleteScreenplay(id) {
+            if (!confirm('确定删除该剧本？')) return;
+            if (!projectName.value) return;
+            try {
+                const dir = projectName.value + '/Storyboard/screenplays';
+                await fetch('/api/workspace/delete', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: dir + '/' + id + '.json' })
+                });
+            } catch (_) {}
+            loadScreenplayList();
+        }
+        async function loadScreenplayToImport(screenplayId) {
+            if (!projectName.value) return;
+            try {
+                const dir = projectName.value + '/Storyboard/screenplays';
+                const r = await fetch('/api/workspace/read?path=' + encodeURIComponent(dir + '/' + screenplayId + '.json'));
+                if (!r.ok) return;
+                const data = await r.json();
+                const sp = typeof data.content === 'string' ? JSON.parse(data.content) : data.content;
+                screenplayLibState.show = false;
+                screenwriterState.show = false;
+                openScriptImport('episodes');
+                scriptState.scriptText = sp.fullText || '';
+            } catch (_) {}
+        }
+        async function importScreenplayFile() {
+            const input = document.createElement('input');
+            input.type = 'file'; input.accept = '.txt,.md,.doc,.docx';
+            input.onchange = async () => {
+                const file = input.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = async () => {
+                    const text = reader.result;
+                    if (!text.trim()) return;
+                    await saveScreenplayToLib(text, { ...swParams }, 'upload');
+                    loadScreenplayList();
+                };
+                reader.readAsText(file);
+            };
+            input.click();
         }
 
         async function startScriptAnalysis() {
@@ -2098,7 +2425,9 @@ const StoryboardApp = {
             toggleBatchMode, toggleSelectLibItem, batchDeleteLibItems,
             scriptState, openScriptImport, closeScriptImport, startScriptAnalysis, generateSelectedImages, confirmImport,
             onScriptFileInput, onScriptWorkspacePick, textModels, friendlyModelName,
-            screenwriterState, openScreenwriter, closeScreenwriter, sendScreenwriterMessage, generateScreenplay, useScreenplayForImport, saveScreenplayToWorkspace,
+            screenwriterState, swParams, openScreenwriter, closeScreenwriter, sendScreenwriterMessage, generateScreenplay, useScreenplayForImport, saveScreenplayToWorkspace,
+            loadConversationArchives, saveConversationArchive, loadConversationArchive, deleteConversationArchive,
+            screenplayLibState, openScreenplayLib, closeScreenplayLib, saveScreenplayToLib, startContinueWriting, deleteScreenplay, loadScreenplayToImport, importScreenplayFile,
             mentionState, getConnectedRefs, getCombinedPrompt, showMentionPopup, hideMentionPopup, insertMentionRef,
             globalSettings, openGlobalSettings, closeGlobalSettings, applyGlobalImageSettings, applyGlobalVideoSettings,
         };
@@ -2804,53 +3133,133 @@ const StoryboardApp = {
                 ` : null}
                 ${this.screenwriterState.show ? html`
                     <div class="sb-imp-overlay" onClick=${this.closeScreenwriter}>
-                        <div class="sb-imp-dialog" onClick=${e => e.stopPropagation()}>
+                        <div class=${this.screenwriterState.screenplay ? 'sb-imp-dialog sb-sw-two-col' : 'sb-imp-dialog'} onClick=${e => e.stopPropagation()}>
                             <div class="sb-imp-header">
-                                <h3>${this.screenwriterState.step === 'preview' ? '剧本创作 — 剧本预览' : '剧本创作'}</h3>
+                                <h3>${this.screenwriterState.step === 'archives' ? '剧本创作 — 历史对话' : '剧本创作'}</h3>
                                 <button onClick=${this.closeScreenwriter} class="sb-del-btn" title="关闭">✕</button>
                             </div>
-                            <div class="sb-imp-body">
-                                ${this.screenwriterState.step === 'chat' ? html`
-                                    <div class="sb-assistant-messages" style="min-height:240px;max-height:42vh">
-                                        ${this.screenwriterState.messages.length === 0 ? html`<div class="sb-assistant-hint">描述你的故事点子，我会像编剧一样和你一起把它打磨成完整剧本。准备好后点击"生成剧本"。</div>` : null}
-                                        ${this.screenwriterState.messages.map((m, i) => html`
-                                            <div key=${i} class=${m.role === 'user' ? 'sb-assistant-msg user' : 'sb-assistant-msg bot'}>${m.content}</div>
-                                        `)}
-                                        ${this.screenwriterState.loading ? html`<div class="sb-assistant-msg bot">思考中...</div>` : null}
-                                    </div>
-                                    ${this.screenwriterState.ready ? html`<p class="sb-imp-progress">\u{2705} 信息已基本完整，可以点击"生成剧本"了（也可继续补充）。</p>` : null}
-                                    ${this.textModels.length > 1 ? html`
-                                        <div class="sb-imp-section">
-                                            <label>模型</label>
-                                            <select class="sb-imp-select" value=${this.screenwriterState.model} onChange=${e => { this.screenwriterState.model = e.target.value; }}>
-                                                ${this.textModels.map(m => html`<option value=${m} key=${m}>${this.friendlyModelName(m)}</option>`)}
-                                            </select>
+                            <div class="sb-imp-body" style=${this.screenwriterState.screenplay ? 'display:flex;flex-direction:row;gap:0;overflow-y:hidden' : ''}>
+                                ${this.screenwriterState.step === 'chat' || this.screenwriterState.screenplay ? html`
+                                    <div class=${this.screenwriterState.screenplay ? 'sb-sw-chat-col' : ''}>
+                                        ${this.screenwriterState.existingScreenplay ? html`<div class="sb-sw-continue-hint">\u{1F4DD} 续写模式 — 基于已有剧本继续创作</div>` : null}
+                                        <div class="sb-assistant-messages" style="min-height:240px;max-height:42vh">
+                                            ${this.screenwriterState.messages.length === 0 ? html`<div class="sb-assistant-hint">${this.screenwriterState.existingScreenplay ? '已有剧本已加载。描述你想续写或修改的方向。' : '描述你的故事点子，我会帮你打磨成完整剧本。'}</div>` : null}
+                                            ${this.screenwriterState.messages.map((m, i) => html`
+                                                <div key=${i} class=${m.role === 'user' ? 'sb-assistant-msg user' : 'sb-assistant-msg bot'}>${m.content}</div>
+                                            `)}
+                                            ${this.screenwriterState.loading ? html`<div class="sb-assistant-msg bot">思考中...</div>` : null}
                                         </div>
-                                    ` : null}
-                                    ${this.screenwriterState.error ? html`<p class="sb-imp-error">${this.screenwriterState.error}</p>` : null}
-                                    <div style="position:relative">
-                                        <textarea class="sb-imp-textarea" rows="3" value=${this.screenwriterState.input} onInput=${e => { this.screenwriterState.input = e.target.value; }} onKeydown=${e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.sendScreenwriterMessage(); } }} placeholder="描述你的故事或回答问题...（Enter 发送，Shift+Enter 换行）" style="padding-right:48px"></textarea>
-                                        <button title="发送" onClick=${this.sendScreenwriterMessage} disabled=${this.screenwriterState.loading || !this.screenwriterState.input.trim()} style="position:absolute;right:6px;bottom:6px;width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;padding:0;background:var(--accent-indigo);color:#fff;border:none;cursor:pointer;flex-shrink:0;transition:opacity .1s">
-                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-                                        </button>
-                                    </div>
-                                    <div class="sb-imp-actions" style="margin-top:12px">
-                                        <button class=${this.screenwriterState.ready ? 'sb-imp-primary' : 'sb-imp-btn'} title="AI 生成完整剧本" onClick=${this.generateScreenplay} disabled=${this.screenwriterState.generating}>${this.screenwriterState.generating ? '正在生成剧本…' : '\u{1F3AC} 生成剧本'}</button>
+                                        ${this.screenwriterState.ready && !this.screenwriterState.screenplay ? html`<p class="sb-imp-progress">\u{2705} 信息已基本完整，可以点击"生成剧本"了。</p>` : null}
+                                        <div class="sb-sw-inline-params">
+                                            <label class=${this.swParams.smartMode ? 'sb-sw-smart-active' : ''} title="智能模式：由 AI 判断集数和时长" onClick=${() => { this.swParams.smartMode = !this.swParams.smartMode; }} style="cursor:pointer">\u{2728} 智能</label>
+                                            ${!this.swParams.smartMode ? html`
+                                                <label>单集时长</label>
+                                                <select class="sb-imp-select sb-sw-inline-sel" value=${this.swParams.duration} onChange=${e => { this.swParams.duration = e.target.value; }}>
+                                                    <option value="">不限</option>
+                                                    <option value="1-3min" selected=${this.swParams.duration === '1-3min'}>1-3 分钟</option>
+                                                    <option value="3-5min" selected=${this.swParams.duration === '3-5min'}>3-5 分钟</option>
+                                                    <option value="5-10min" selected=${this.swParams.duration === '5-10min'}>5-10 分钟</option>
+                                                    <option value="10+min" selected=${this.swParams.duration === '10+min'}>10+ 分钟</option>
+                                                </select>
+                                                <label>集数</label>
+                                                <select class="sb-imp-select sb-sw-inline-sel" value=${this.swParams.episodeCount} onChange=${e => { this.swParams.episodeCount = e.target.value; }}>
+                                                    <option value="">不限</option>
+                                                    <option value="1" selected=${this.swParams.episodeCount === '1'}>1 集</option>
+                                                    <option value="2" selected=${this.swParams.episodeCount === '2'}>2 集</option>
+                                                    <option value="3" selected=${this.swParams.episodeCount === '3'}>3 集</option>
+                                                    <option value="4" selected=${this.swParams.episodeCount === '4'}>4 集</option>
+                                                    <option value="5" selected=${this.swParams.episodeCount === '5'}>5 集</option>
+                                                    <option value="6+" selected=${this.swParams.episodeCount === '6+'}>6+ 集</option>
+                                                </select>
+                                            ` : null}
+                                            ${this.textModels.length > 1 ? html`
+                                                <label>模型</label>
+                                                <select class="sb-imp-select sb-sw-inline-sel" value=${this.screenwriterState.model} onChange=${e => { this.screenwriterState.model = e.target.value; }}>
+                                                    ${this.textModels.map(m => html`<option value=${m} key=${m}>${this.friendlyModelName(m)}</option>`)}
+                                                </select>
+                                            ` : null}
+                                            ${this.screenplayLibState.screenplays.length > 0 ? html`<button class="sb-sw-icon-btn" onClick=${this.openScreenplayLib} title="剧本库">\u{1F4DA}</button>` : null}
+                                            ${this.screenwriterState.archives.length > 0 ? html`<button class="sb-sw-icon-btn" onClick=${() => { this.screenwriterState.step = 'archives'; }} title="历史对话">\u{1F4C2}</button>` : null}
+                                        </div>
+                                        ${this.screenwriterState.error ? html`<p class="sb-imp-error">${this.screenwriterState.error}</p>` : null}
+                                        <div style="position:relative">
+                                            <textarea class="sb-imp-textarea" rows="3" value=${this.screenwriterState.input} onInput=${e => { this.screenwriterState.input = e.target.value; }} onKeydown=${e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.sendScreenwriterMessage(); } }} placeholder=${this.screenwriterState.screenplay ? '继续对话以优化剧本...（Enter 发送）' : '描述你的故事或回答问题...（Enter 发送，Shift+Enter 换行）'} style="padding-right:48px"></textarea>
+                                            <button title="发送" onClick=${this.sendScreenwriterMessage} disabled=${this.screenwriterState.loading || !this.screenwriterState.input.trim()} style="position:absolute;right:6px;bottom:6px;width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;padding:0;background:var(--accent-indigo);color:#fff;border:none;cursor:pointer;flex-shrink:0;transition:opacity .1s">
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                                            </button>
+                                        </div>
+                                        <div class="sb-imp-actions" style="margin-top:12px">
+                                            <button class="sb-imp-btn" onClick=${this.saveConversationArchive} disabled=${this.screenwriterState.messages.length === 0}>\u{1F4BE} 保存对话</button>
+                                            <button class=${this.screenwriterState.ready ? 'sb-imp-primary' : 'sb-imp-btn'} title="AI 生成完整剧本" onClick=${this.generateScreenplay} disabled=${this.screenwriterState.generating}>${this.screenwriterState.generating ? '正在生成剧本…' : '\u{1F3AC} 生成剧本'}</button>
+                                        </div>
                                     </div>
                                 ` : null}
-                                ${this.screenwriterState.step === 'preview' ? html`
-                                    <div class="sb-imp-section">
-                                        <label>生成的剧本（可编辑）</label>
-                                        <textarea class="sb-imp-textarea" value=${this.screenwriterState.screenplay} onInput=${e => { this.screenwriterState.screenplay = e.target.value; }} rows="16" placeholder="剧本内容..."></textarea>
-                                    </div>
-                                    ${this.screenwriterState.error ? html`<p class="sb-imp-error">${this.screenwriterState.error}</p>` : null}
-                                    <div class="sb-imp-actions" style="margin-top:12px">
-                                        <button class="sb-imp-btn" title="返回对话编辑" onClick=${() => { this.screenwriterState.step = 'chat'; }}>← 返回对话</button>
-                                        <button class="sb-imp-btn" title="重新生成剧本" onClick=${this.generateScreenplay} disabled=${this.screenwriterState.generating}>${this.screenwriterState.generating ? '重新生成中…' : '\u{1F501} 重新生成'}</button>
-                                        <button class="sb-imp-btn" title="保存剧本到工作空间" onClick=${this.saveScreenplayToWorkspace}>\u{1F4BE} 保存到工作空间</button>
-                                        <button class="sb-imp-primary" title="将剧本导入到分镜" onClick=${this.useScreenplayForImport}>用于剧本导入 →</button>
+                                ${this.screenwriterState.screenplay ? html`
+                                    <div class="sb-sw-preview-col">
+                                        <div class="sb-sw-preview-header">
+                                            <label>剧本预览（可编辑）</label>
+                                            <button class="sb-del-btn" title="关闭预览" onClick=${() => { this.screenwriterState.screenplay = ''; }} style="font-size:14px;padding:2px 6px">✕</button>
+                                        </div>
+                                        <textarea class="sb-imp-textarea sb-sw-preview-text" value=${this.screenwriterState.screenplay} onInput=${e => { this.screenwriterState.screenplay = e.target.value; }} placeholder="剧本内容..."></textarea>
+                                        <div class="sb-imp-actions" style="margin-top:8px;flex-wrap:wrap">
+                                            <button class="sb-imp-btn" title="重新生成" onClick=${this.generateScreenplay} disabled=${this.screenwriterState.generating}>${this.screenwriterState.generating ? '生成中…' : '\u{1F501} 重新生成'}</button>
+                                            <button class="sb-imp-btn" onClick=${() => this.saveScreenplayToLib(this.screenwriterState.screenplay, this.swParams, this.screenwriterState.existingScreenplay ? 'continue' : 'generated')}>\u{1F4DA} 保存到剧本库</button>
+                                            <button class="sb-imp-primary" onClick=${this.useScreenplayForImport}>用于剧本导入 →</button>
+                                        </div>
                                     </div>
                                 ` : null}
+                                ${this.screenwriterState.step === 'archives' && !this.screenwriterState.screenplay ? html`
+                                    <div class="sb-sw-list">
+                                        ${this.screenwriterState.archives.length === 0 ? html`<p style="color:var(--text-muted);font-size:12px;text-align:center;padding:20px 0">暂无保存的对话</p>` : null}
+                                        ${this.screenwriterState.archives.map(a => html`
+                                            <div class="sb-sw-item" key=${a.id}>
+                                                <div>
+                                                    <div class="sb-sw-item-name">${a.name}</div>
+                                                    <div class="sb-sw-item-meta">${(a.date || '').slice(0, 16).replace('T', ' ')} · ${a.messageCount} 条消息</div>
+                                                </div>
+                                                <div class="sb-sw-item-actions">
+                                                    <button class="sb-imp-btn" onClick=${() => this.loadConversationArchive(a.id)}>加载</button>
+                                                    <button class="sb-imp-btn" style="color:var(--accent-red)" onClick=${() => this.deleteConversationArchive(a.id)}>删除</button>
+                                                </div>
+                                            </div>
+                                        `)}
+                                    </div>
+                                    <div class="sb-imp-actions" style="margin-top:12px">
+                                        <button class="sb-imp-btn" onClick=${() => { this.screenwriterState.step = 'chat'; }}>← 返回</button>
+                                    </div>
+                                ` : null}
+                            </div>
+                        </div>
+                    </div>
+                ` : null}
+                ${this.screenplayLibState.show ? html`
+                    <div class="sb-imp-overlay" onClick=${this.closeScreenplayLib}>
+                        <div class="sb-imp-dialog" onClick=${e => e.stopPropagation()}>
+                            <div class="sb-imp-header">
+                                <h3>\u{1F4DA} 剧本库</h3>
+                                <button onClick=${this.closeScreenplayLib} class="sb-del-btn" title="关闭">✕</button>
+                            </div>
+                            <div class="sb-imp-body">
+                                <div class="sb-imp-actions" style="margin-bottom:12px">
+                                    <button class="sb-imp-btn" onClick=${this.importScreenplayFile}>\u{1F4E5} 上传剧本</button>
+                                    <button class="sb-imp-btn" onClick=${() => { this.screenplayLibState.show = false; this.screenwriterState.step = 'chat'; }}>新建剧本</button>
+                                </div>
+                                <div class="sb-sw-list">
+                                    ${this.screenplayLibState.screenplays.length === 0 ? html`<p style="color:var(--text-muted);font-size:12px;text-align:center;padding:20px 0">暂无剧本。可通过上方上传或创作新剧本。</p>` : null}
+                                    ${this.screenplayLibState.screenplays.map(sp => html`
+                                        <div class="sb-sw-item" key=${sp.id}>
+                                            <div style="min-width:0;flex:1">
+                                                <div class="sb-sw-item-name">${sp.name}</div>
+                                                <div class="sb-sw-item-meta">${(sp.date || '').slice(0, 10)} · ${sp.episodeCount} 部分 · ${sp.source === 'upload' ? '上传' : 'AI 生成'}</div>
+                                            </div>
+                                            <div class="sb-sw-item-actions">
+                                                <button class="sb-imp-btn" onClick=${() => this.startContinueWriting(sp.id)}>\u{270D}\u{FE0F} 续写</button>
+                                                <button class="sb-imp-btn" onClick=${() => this.loadScreenplayToImport(sp.id)}>\u{1F4C4} 导入</button>
+                                                <button class="sb-imp-btn" style="color:var(--accent-red)" onClick=${() => this.deleteScreenplay(sp.id)}>\u{1F5D1}</button>
+                                            </div>
+                                        </div>
+                                    `)}
+                                </div>
                             </div>
                         </div>
                     </div>

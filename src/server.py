@@ -2173,7 +2173,7 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
                 data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                 headers=headers, method="POST"
             )
-            with urllib.request.urlopen(req, timeout=300) as resp:
+            with urllib.request.urlopen(req, timeout=600) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
             text = ""
             for item in (result.get("output") or []):

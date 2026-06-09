@@ -2353,3 +2353,172 @@
 .sb-assistant-input button:hover:not(:disabled) {
     opacity: 0.9;
 }
+
+/* ----------------------------------------------------------
+   19. Screenwriter: params, archives, screenplay library
+   ---------------------------------------------------------- */
+.sb-sw-radio-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.sb-sw-radio {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border: 1px solid var(--input-border);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: var(--input-bg);
+    transition: all 0.15s;
+}
+.sb-sw-radio:hover {
+    border-color: var(--accent-indigo);
+}
+.sb-sw-radio input[type="radio"] {
+    accent-color: var(--accent-indigo);
+    margin: 0;
+}
+.sb-sw-radio:has(input:checked) {
+    border-color: var(--accent-indigo);
+    background: var(--accent-indigo-muted);
+    color: var(--accent-indigo);
+    font-weight: 600;
+}
+
+.sb-sw-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 50vh;
+    overflow-y: auto;
+}
+.sb-sw-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    border: 1px solid var(--border-default);
+    border-radius: 8px;
+    background: var(--bg-surface);
+    gap: 12px;
+}
+.sb-sw-item-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.sb-sw-item-meta {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+.sb-sw-item-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.sb-sw-continue-hint {
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: rgba(99, 102, 241, 0.1);
+    border: 1px solid rgba(99, 102, 241, 0.2);
+    color: var(--accent-indigo);
+    font-size: 12px;
+    margin-bottom: 8px;
+}
+
+/* Inline params bar in chat */
+.sb-sw-inline-params {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 0;
+    font-size: 12px;
+    color: var(--text-muted);
+    flex-wrap: nowrap;
+    overflow-x: auto;
+}
+.sb-sw-inline-params label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.sb-sw-inline-sel {
+    padding: 3px 6px;
+    font-size: 11px;
+    border-radius: 4px;
+}
+.sb-sw-inline-btn {
+    padding: 3px 8px !important;
+    font-size: 12px;
+    line-height: 1;
+}
+.sb-sw-icon-btn {
+    background: none;
+    border: 1px solid var(--border-default);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.15s;
+}
+.sb-sw-icon-btn:hover {
+    background: var(--input-bg);
+    border-color: var(--accent-indigo);
+}
+.sb-sw-smart-active {
+    color: var(--accent-indigo) !important;
+    font-weight: 600;
+}
+
+/* Two-column layout when screenplay preview is shown */
+.sb-sw-two-col {
+    max-width: 960px !important;
+}
+.sb-sw-chat-col {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+}
+.sb-sw-preview-col {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    border-left: 1px solid var(--border-default);
+    padding-left: 16px;
+    margin-left: 16px;
+    overflow-y: auto;
+}
+.sb-sw-preview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+.sb-sw-preview-header label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.sb-sw-preview-text {
+    flex: 1;
+    min-height: 300px;
+    max-height: 55vh;
+    resize: none;
+    font-size: 12px;
+    line-height: 1.6;
+}
