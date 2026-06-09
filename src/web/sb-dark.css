@@ -2405,6 +2405,7 @@
     border-radius: 8px;
     background: var(--bg-surface);
     gap: 12px;
+    flex-wrap: nowrap;
 }
 .sb-sw-item-name {
     font-size: 13px;
@@ -2423,6 +2424,7 @@
     display: flex;
     gap: 6px;
     flex-shrink: 0;
+    flex-wrap: nowrap;
 }
 
 .sb-sw-continue-hint {

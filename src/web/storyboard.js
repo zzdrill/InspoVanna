@@ -1806,18 +1806,18 @@ const StoryboardApp = {
             screenwriterState.generating = true;
             screenwriterState.error = '';
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 300000);
+            const timeoutId = setTimeout(() => controller.abort(), 600000);
             try {
                 const apiKey = window.state?.arkApiKey;
                 if (!apiKey) throw new Error('请先在设置中配置 API Key');
                 const model = screenwriterState.model || textModels[0] || 'doubao-seed-2-0-pro-260215';
+                const systemContent = buildWriteSystemPrompt(swParams, screenwriterState.existingScreenplay || null);
                 const transcript = screenwriterState.messages
                     .map(m => (m.role === 'user' ? '用户' : '编剧助手') + '：' + m.content)
                     .join('\n\n');
-                const systemContent = buildWriteSystemPrompt(swParams, screenwriterState.existingScreenplay || null);
                 const apiMessages = [
                     { role: 'system', content: systemContent },
-                    { role: 'user', content: '以下是完整讨论：\n\n' + transcript + '\n\n请基于以上讨论输出完整剧本。' },
+                    { role: 'user', content: transcript ? '以下是完整讨论：\n\n' + transcript + '\n\n请基于以上讨论输出完整剧本。' : '请直接基于系统提示中的已有剧本继续创作。' },
                 ];
                 const r = await fetch('/api/ark/chat', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2067,11 +2067,12 @@ const StoryboardApp = {
                 const data = await r.json();
                 const sp = typeof data.content === 'string' ? JSON.parse(data.content) : data.content;
                 screenwriterState.existingScreenplay = sp.fullText || '';
+                screenwriterState.screenplay = sp.fullText || '';
                 screenwriterState.screenplayId = screenplayId;
                 if (sp.params) Object.assign(swParams, sp.params);
                 screenwriterState.step = 'chat';
                 screenwriterState.messages = [];
-                screenwriterState.ready = false;
+                screenwriterState.ready = true;
                 screenwriterState.currentArchiveId = '';
                 screenwriterState.archiveName = '';
                 screenplayLibState.show = false;
@@ -3218,8 +3219,8 @@ const StoryboardApp = {
                                                     <div class="sb-sw-item-meta">${(a.date || '').slice(0, 16).replace('T', ' ')} · ${a.messageCount} 条消息</div>
                                                 </div>
                                                 <div class="sb-sw-item-actions">
-                                                    <button class="sb-imp-btn" onClick=${() => this.loadConversationArchive(a.id)}>加载</button>
-                                                    <button class="sb-imp-btn" style="color:var(--accent-red)" onClick=${() => this.deleteConversationArchive(a.id)}>删除</button>
+                                                    <button class="sb-sw-icon-btn" onClick=${() => this.loadConversationArchive(a.id)} title="加载对话">\u{1F4C2}</button>
+                                                    <button class="sb-sw-icon-btn" onClick=${() => this.deleteConversationArchive(a.id)} title="删除对话" style="color:var(--accent-red)">\u{1F5D1}</button>
                                                 </div>
                                             </div>
                                         `)}
@@ -3253,9 +3254,9 @@ const StoryboardApp = {
                                                 <div class="sb-sw-item-meta">${(sp.date || '').slice(0, 10)} · ${sp.episodeCount} 部分 · ${sp.source === 'upload' ? '上传' : 'AI 生成'}</div>
                                             </div>
                                             <div class="sb-sw-item-actions">
-                                                <button class="sb-imp-btn" onClick=${() => this.startContinueWriting(sp.id)}>\u{270D}\u{FE0F} 续写</button>
-                                                <button class="sb-imp-btn" onClick=${() => this.loadScreenplayToImport(sp.id)}>\u{1F4C4} 导入</button>
-                                                <button class="sb-imp-btn" style="color:var(--accent-red)" onClick=${() => this.deleteScreenplay(sp.id)}>\u{1F5D1}</button>
+                                                <button class="sb-sw-icon-btn" onClick=${() => this.startContinueWriting(sp.id)} title="续写/修改">\u{270D}\u{FE0F}</button>
+                                                <button class="sb-sw-icon-btn" onClick=${() => this.loadScreenplayToImport(sp.id)} title="载入剧本导入">\u{1F4C4}</button>
+                                                <button class="sb-sw-icon-btn" onClick=${() => this.deleteScreenplay(sp.id)} title="删除剧本" style="color:var(--accent-red)">\u{1F5D1}</button>
                                             </div>
                                         </div>
                                     `)}
