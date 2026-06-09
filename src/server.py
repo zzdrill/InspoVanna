@@ -2189,37 +2189,41 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
                 data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                 headers=headers, method="POST"
             )
-            with urllib.request.urlopen(req, timeout=300) as resp:
+            with urllib.request.urlopen(req, timeout=500) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
             self._send_json(result)
         except Exception as e:
             self._send_error_json(str(e), 500)
 
     def _call_llm_and_get_result(self, model, system_prompt, user_text):
-        """Call ARK Responses API, parse JSON response, return dict or None (error already sent)."""
+        """Call ARK Chat Completions API, parse JSON response, return dict or None (error already sent)."""
         import socket
         payload = {
             "model": model,
-            "input": [
-                {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
-                {"role": "user", "content": [{"type": "input_text", "text": user_text}]}
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_text}
             ]
         }
         try:
             headers = _ark_headers()
             req = urllib.request.Request(
-                "https://ark.cn-beijing.volces.com/api/v3/responses",
+                "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
                 data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                 headers=headers, method="POST"
             )
-            with urllib.request.urlopen(req, timeout=600) as resp:
+            with urllib.request.urlopen(req, timeout=500) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
             text = ""
-            for item in (result.get("output") or []):
-                if item.get("type") == "message":
-                    for c in (item.get("content") or []):
-                        if c.get("type") == "output_text":
-                            text += c.get("text", "")
+            content = (result.get("choices") or [{}])[0].get("message", {}).get("content", "")
+            if not content:
+                # fallback: try Responses API format
+                for item in (result.get("output") or []):
+                    if item.get("type") == "message":
+                        for c in (item.get("content") or []):
+                            if c.get("type") == "output_text":
+                                content += c.get("text", "")
+            text = content
             if not text.strip():
                 self._send_error_json("LLM 未返回有效内容")
                 return None
