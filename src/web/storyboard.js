@@ -1658,7 +1658,7 @@ const StoryboardApp = {
             messages: [], input: '', loading: false,
             ready: false,        // LLM 已输出 [READY_TO_WRITE]
             generating: false,   // 生成剧本调用进行中
-            screenplay: '', model: '', error: '',
+            screenplay: '', model: '', error: '', genProgress: '',
             // 对话存档
             archives: [],           // [{id, name, date, messageCount, params}]
             currentArchiveId: '',   // 当前加载的存档 ID
@@ -1756,7 +1756,7 @@ const StoryboardApp = {
             Object.assign(screenwriterState, {
                 show: true, step: 'chat', messages: [], input: '',
                 loading: false, ready: false, generating: false,
-                screenplay: '', error: '', model: textModels[0] || '',
+                screenplay: '', error: '', model: textModels[0] || '', genProgress: '',
                 archives: [], currentArchiveId: '', archiveName: '',
                 autoSaveTimer: null, screenplayId: '', existingScreenplay: '',
             });
@@ -1800,37 +1800,93 @@ const StoryboardApp = {
         }
         async function generateScreenplay() {
             if (screenwriterState.generating) return;
-            if (!screenwriterState.messages.some(m => m.role === 'user')) {
+            if (!screenwriterState.messages.some(m => m.role === 'user') && !screenwriterState.existingScreenplay) {
                 screenwriterState.error = '请先与编剧助手讨论你的故事'; return;
             }
             screenwriterState.generating = true;
             screenwriterState.error = '';
+            screenwriterState.genProgress = '正在生成大纲…';
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 600000);
             try {
                 const apiKey = window.state?.arkApiKey;
                 if (!apiKey) throw new Error('请先在设置中配置 API Key');
                 const model = screenwriterState.model || textModels[0] || 'doubao-seed-2-0-pro-260215';
-                const systemContent = buildWriteSystemPrompt(swParams, screenwriterState.existingScreenplay || null);
                 const transcript = screenwriterState.messages
                     .map(m => (m.role === 'user' ? '用户' : '编剧助手') + '：' + m.content)
                     .join('\n\n');
-                const apiMessages = [
-                    { role: 'system', content: systemContent },
-                    { role: 'user', content: transcript ? '以下是完整讨论：\n\n' + transcript + '\n\n请基于以上讨论输出完整剧本。' : '请直接基于系统提示中的已有剧本继续创作。' },
-                ];
-                const r = await fetch('/api/ark/chat', {
+
+                // Step 1: Generate outline
+                const outlineSystem = '你是一名专业编剧。请根据用户的故事讨论，生成一份剧本大纲。只输出大纲，格式为JSON数组，不要任何解释或代码块包裹：\n[{"title":"剧集/段落标题","summary":"该段落概要(30-60字)","key_points":"关键情节点"}]\n要求：\n- 根据故事规模合理分段，通常 2-8 个段落\n- 每个段落应是一个相对完整的故事单元\n- 保持JSON格式严格正确';
+                const outlineUser = (transcript ? '以下是故事讨论：\n\n' + transcript + '\n\n' : '') + (screenwriterState.existingScreenplay ? '以下是已有剧本：\n\n' + screenwriterState.existingScreenplay.slice(-3000) + '\n\n请在已有基础上继续创作。\n\n' : '') + '请生成剧本大纲。';
+                const outlineR = await fetch('/api/ark/chat', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ model, messages: apiMessages }), signal: controller.signal
+                    body: JSON.stringify({ model, messages: [
+                        { role: 'system', content: outlineSystem },
+                        { role: 'user', content: outlineUser },
+                    ] }), signal: controller.signal
                 });
-                const data = await r.json();
-                if (data.error) throw new Error(data.error);
-                const sp = data.choices?.[0]?.message?.content || data.output?.[0]?.content?.[0]?.text || '';
-                if (!sp.trim()) throw new Error('生成结果为空，请重试');
-                screenwriterState.screenplay = sp.trim();
+                const outlineData = await outlineR.json();
+                if (outlineData.error) throw new Error(outlineData.error);
+                let outlineText = outlineData.choices?.[0]?.message?.content || outlineData.output?.[0]?.content?.[0]?.text || '';
+                // Extract JSON from possible markdown code block
+                const jsonMatch = outlineText.match(/```(?:json)?\s*([\s\S]*?)```/);
+                if (jsonMatch) outlineText = jsonMatch[1];
+                let outline;
+                try { outline = JSON.parse(outlineText.trim()); } catch (_) {
+                    // Try to find array in text
+                    const arrMatch = outlineText.match(/\[[\s\S]*\]/);
+                    if (arrMatch) outline = JSON.parse(arrMatch[0]);
+                    else throw new Error('大纲解析失败，请重试');
+                }
+                if (!Array.isArray(outline) || outline.length === 0) throw new Error('大纲为空，请重试');
+
+                screenwriterState.screenplay = '';
+                const totalParts = outline.length;
+                const allParts = [];
+
+                // Step 2: Generate each part
+                for (let i = 0; i < totalParts; i++) {
+                    if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+                    const part = outline[i];
+                    screenwriterState.genProgress = `正在生成第 ${i + 1}/${totalParts} 部分：${part.title || ''}…`;
+
+                    const partSystem = buildWriteSystemPrompt(swParams, i === 0 ? (screenwriterState.existingScreenplay || null) : null);
+                    const fullOutline = outline.map((o, idx) => `${idx + 1}. ${o.title}：${o.summary}`).join('\n');
+                    const prevParts = allParts.length > 0 ? '\n\n【已生成的部分】\n' + allParts.join('\n\n').slice(-4000) + '\n（以上已生成，请勿重复）' : '';
+                    let partUser = '';
+                    if (screenwriterState.existingScreenplay && i === 0) {
+                        partUser = '以下是已有剧本，请在已有基础上继续创作第 ' + (i + 1) + ' 部分「' + part.title + '」：\n\n' + screenwriterState.existingScreenplay.slice(-4000) + '\n\n仅输出续写的新内容，不要重复已有内容。';
+                    } else {
+                        partUser = '以下是完整剧本大纲：\n' + fullOutline + '\n\n' + (transcript ? '故事讨论要点：\n' + transcript.slice(-3000) + '\n\n' : '') + '请生成第 ' + (i + 1) + ' 部分「' + part.title + '」的完整剧本。' + prevParts;
+                    }
+                    partUser += '\n\n输出要求：\n- 直接输出剧本正文，不要解释或代码块\n- 用场景标题组织：场景N　[内/外景]　地点　—　时间（日/夜）\n- 每个场景先写场景描述，再写对白\n- 对白格式：人物名：（表演提示）对白内容';
+
+                    const partR = await fetch('/api/ark/chat', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ model, messages: [
+                            { role: 'system', content: partSystem },
+                            { role: 'user', content: partUser },
+                        ] }), signal: controller.signal
+                    });
+                    const partData = await partR.json();
+                    if (partData.error) throw new Error(partData.error);
+                    const partText = partData.choices?.[0]?.message?.content || partData.output?.[0]?.content?.[0]?.text || '';
+                    if (!partText.trim()) continue;
+
+                    const partHeader = (i > 0 ? '\n\n' : '') + '══════════════════════════════\n' + (part.title || ('第' + (i + 1) + '部分')) + '\n' + (part.summary || '') + '\n══════════════════════════════\n\n';
+                    allParts.push(partText.trim());
+                    screenwriterState.screenplay += partHeader + partText.trim();
+                }
+
+                if (!screenwriterState.screenplay.trim()) throw new Error('生成结果为空，请重试');
             } catch (e) {
-                screenwriterState.error = e.name === 'AbortError' ? '❌ 生成超时（5分钟），请重试' : '❌ ' + e.message;
-            } finally { clearTimeout(timeoutId); screenwriterState.generating = false; }
+                if (!screenwriterState.screenplay?.trim()) {
+                    screenwriterState.error = e.name === 'AbortError' ? '❌ 生成超时，请重试' : '❌ ' + e.message;
+                } else {
+                    window.showToast && window.showToast('部分内容生成失败，已保存已完成的部分', 'warning');
+                }
+            } finally { clearTimeout(timeoutId); screenwriterState.generating = false; screenwriterState.genProgress = ''; }
         }
         function useScreenplayForImport() {
             const text = (screenwriterState.screenplay || '').trim();
@@ -3191,7 +3247,7 @@ const StoryboardApp = {
                                         </div>
                                         <div class="sb-imp-actions" style="margin-top:12px">
                                             <button class="sb-imp-btn" onClick=${this.saveConversationArchive} disabled=${this.screenwriterState.messages.length === 0}>\u{1F4BE} 保存对话</button>
-                                            <button class=${this.screenwriterState.ready ? 'sb-imp-primary' : 'sb-imp-btn'} title="AI 生成完整剧本" onClick=${this.generateScreenplay} disabled=${this.screenwriterState.generating}>${this.screenwriterState.generating ? '正在生成剧本…' : '\u{1F3AC} 生成剧本'}</button>
+                                            <button class=${this.screenwriterState.ready ? 'sb-imp-primary' : 'sb-imp-btn'} title="AI 生成完整剧本" onClick=${this.generateScreenplay} disabled=${this.screenwriterState.generating}>${this.screenwriterState.generating ? (this.screenwriterState.genProgress || '正在生成剧本…') : '\u{1F3AC} 生成剧本'}</button>
                                         </div>
                                     </div>
                                 ` : null}
@@ -3203,7 +3259,7 @@ const StoryboardApp = {
                                         </div>
                                         <textarea class="sb-imp-textarea sb-sw-preview-text" value=${this.screenwriterState.screenplay} onInput=${e => { this.screenwriterState.screenplay = e.target.value; }} placeholder="剧本内容..."></textarea>
                                         <div class="sb-imp-actions" style="margin-top:8px;flex-wrap:wrap">
-                                            <button class="sb-imp-btn" title="重新生成" onClick=${this.generateScreenplay} disabled=${this.screenwriterState.generating}>${this.screenwriterState.generating ? '生成中…' : '\u{1F501} 重新生成'}</button>
+                                            <button class="sb-imp-btn" title="重新生成" onClick=${this.generateScreenplay} disabled=${this.screenwriterState.generating}>${this.screenwriterState.generating ? (this.screenwriterState.genProgress || '生成中…') : '\u{1F501} 重新生成'}</button>
                                             <button class="sb-imp-btn" onClick=${() => this.saveScreenplayToLib(this.screenwriterState.screenplay, this.swParams, this.screenwriterState.existingScreenplay ? 'continue' : 'generated')}>\u{1F4DA} 保存到剧本库</button>
                                             <button class="sb-imp-primary" onClick=${this.useScreenplayForImport}>用于剧本导入 →</button>
                                         </div>
