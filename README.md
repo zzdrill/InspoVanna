@@ -6,12 +6,12 @@
 
   ![Windows](https://img.shields.io/badge/Windows-✓-0078D4?logo=windows&logoColor=white)
   ![macOS](https://img.shields.io/badge/macOS-✓-000000?logo=apple&logoColor=white)
-  ![Linux](https://img.shields.io/badge/Linux-✓-FCC624?logo=linux&logoColor=black)
-  ![Python](https://img.shields.io/badge/Python-3.8+-3776AB?logo=python&logoColor=white)
+  ![Linux](https://img.shields.io/badge/Linux-✓-FCC624?logo=linux&logoColor=white)
+  ![Seedance 2.0](https://img.shields.io/static/v1?label=Seedance&message=2.0&color=6366f1)
 
 </div>
 
-**本地 AI 创意工作室** — 基于火山引擎 ARK API，集文本对话、图像生成、视频创作与一站式短剧创作于一体，所有生成内容自动保存在本地。
+**InspoVanna AI 短剧创作工作站** — 接入 Seedance 2.0 视频大模型，打通从剧本构思到分镜生成、素材出片的全链路 AI 创作。文本对话、图像生成、视频创作、一站式短剧制作，一个工具全搞定，所有内容自动保存在本地。
 <div align="center">
   <img src="docs/imgs/homepage.png" alt="InspoVanna 首页" width="480">
   <img src="docs/imgs/AIMakerHub.png" alt="AI Maker Hub 社区" width="240">
