@@ -2379,14 +2379,7 @@ const StoryboardApp = {
                 return;
             }
             scriptState.step = 'analyzing'; scriptState.progress = '正在连接 AI 服务...'; scriptState.error = '';
-            // Progress simulation
-            const estimatedMin = Math.max(1, Math.ceil(charCount / 8000));
-            const progressHints = ['正在发送剧本至 AI...', 'AI 正在分析剧本结构...', `预计需要 ${estimatedMin}-${estimatedMin + 1} 分钟，请耐心等待...`, '仍在等待 AI 响应，请耐心等待...', '分析仍在进行中，大型剧本可能需要更长时间...'];
-            let hintIdx = 0;
-            const progressTimer = setInterval(() => {
-                if (hintIdx < progressHints.length) { scriptState.progress = progressHints[hintIdx++]; }
-            }, 20000);
-            // 10 minute timeout (aligned with backend)
+            // 10 minute timeout
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 600000);
             try {
@@ -2395,15 +2388,45 @@ const StoryboardApp = {
                     body: JSON.stringify({ script_text: text, mode: scriptState.level, model: scriptState.model }),
                     signal: controller.signal
                 });
-                const data = await r.json();
-                if (!r.ok || data.error) throw new Error(data.error || '分析失败');
-                scriptState.source = data.source || 'llm';
-                scriptState.result = data.result;
+                // Parse SSE stream
+                const reader = r.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let currentEvent = '';
+                let finalResult = null;
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); // keep incomplete line
+                    for (const line of lines) {
+                        if (line.startsWith('event: ')) {
+                            currentEvent = line.slice(7).trim();
+                        } else if (line.startsWith('data: ')) {
+                            try {
+                                const d = JSON.parse(line.slice(6));
+                                if (currentEvent === 'stage') {
+                                    scriptState.progress = d.text || '';
+                                } else if (currentEvent === 'result') {
+                                    finalResult = d;
+                                } else if (currentEvent === 'error') {
+                                    throw new Error(d.error || '分析失败');
+                                }
+                            } catch (pe) {
+                                if (pe.message && !pe.message.includes('JSON')) throw pe;
+                            }
+                        }
+                    }
+                }
+                if (!finalResult) throw new Error('未收到分析结果');
+                scriptState.source = finalResult.source || 'llm';
+                scriptState.result = finalResult.result;
                 if (scriptState.level === 'episodes') {
                     const selC = {}, selP = {}, selS = {};
-                    (data.result.characters || []).forEach((_, i) => selC[i] = true);
-                    (data.result.props || []).forEach((_, i) => selP[i] = true);
-                    (data.result.scenes || []).forEach((_, i) => selS[i] = true);
+                    (finalResult.result.characters || []).forEach((_, i) => selC[i] = true);
+                    (finalResult.result.props || []).forEach((_, i) => selP[i] = true);
+                    (finalResult.result.scenes || []).forEach((_, i) => selS[i] = true);
                     scriptState.selectedChars = selC; scriptState.selectedProps = selP; scriptState.selectedScenes = selS;
                 }
                 scriptState.step = 'preview';
@@ -2411,7 +2434,7 @@ const StoryboardApp = {
                 if (e.name === 'AbortError') { scriptState.error = '分析超时（10分钟），请缩短剧本后重试'; }
                 else { scriptState.error = e.message; }
                 scriptState.step = 'idle';
-            } finally { clearInterval(progressTimer); clearTimeout(timeoutId); }
+            } finally { clearTimeout(timeoutId); }
         }
 
         async function generateSelectedImages() {

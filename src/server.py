@@ -2022,9 +2022,7 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
         self._send_json({"ok": True, "created": created, "to_delete": to_delete})
 
     def _handle_script_analyze(self):
-        """POST /api/script/analyze — progressive screenplay analysis.
-        mode: "episodes" | "scenes" | "shots"
-        """
+        """POST /api/script/analyze — streaming screenplay analysis with staged progress."""
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length) if length > 0 else b""
         try:
@@ -2048,117 +2046,223 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
             self._send_error_json(f"剧本行数过多（{len(script_text.split(chr(10)))} 行），请限制在 2000 行以内")
             return
 
-        # --- Mode: episodes ---
-        if mode == "episodes":
-            script_lines = script_text.split('\n')
-            numbered_text = '\n'.join(f'{i+1}: {line}' for i, line in enumerate(script_lines))
-            system_prompt = (
-                "你是一个专业的剧本分析师。请分析以下带行号的剧本文本，将其拆分为剧集(Episode)并提取角色、道具和场景。\n"
-                "请严格按照以下JSON格式返回结果，不要包含任何其他文字说明：\n"
-                "{\n"
-                '  "episodes": [{\n'
-                '    "title": "剧集标题",\n'
-                '    "summary": "剧集概要(50-100字)",\n'
-                '    "startLine": 1,\n'
-                '    "endLine": 50,\n'
-                '    "tags": ["标签"]\n'
-                '  }],\n'
-                '  "characters": [{ "name": "角色名", "description": "外貌服装等详细描述", "tags": ["主角"] }],\n'
-                '  "props": [{ "name": "道具名", "description": "外观描述", "category": "道具|场景|载具", "tags": [] }],\n'
-                '  "scenes": [{ "name": "场景名", "description": "场景环境描述(地点/氛围/光线/建筑风格)", "category": "室外|室内|科幻|古代", "tags": [] }]\n'
-                "}\n"
-                "要求：\n"
-                "- 每个episode的startLine和endLine必须准确对应该剧集在原文中的行号范围(1-based, inclusive)\n"
-                "- 所有episode的行号范围应连续覆盖全文，不重叠不遗漏\n"
-                "- 角色描述需足够详细以生成参考图\n"
-                "- 场景描述需包含环境、建筑风格、光线氛围等细节以生成参考图\n"
-                "- 保持JSON格式严格正确"
-            )
-            user_text = f"请分析以下带行号的剧本并拆分剧集，注意startLine和endLine要准确对应行号：\n\n---\n{numbered_text}\n---"
-            parsed = self._call_llm_and_get_result(model, system_prompt, user_text)
-            if parsed is None:
-                return
-            # Reconstruct text from line ranges
-            for ep in parsed.get("episodes", []):
-                start = ep.get("startLine", 1) - 1  # convert to 0-based
-                end = ep.get("endLine", len(script_lines))
-                if isinstance(start, int) and isinstance(end, int) and 0 <= start < len(script_lines):
-                    ep["text"] = "\n".join(script_lines[max(0, start):min(end, len(script_lines))])
-                else:
-                    ep["text"] = script_text
-                # Remove line-range fields from output
-                ep.pop("startLine", None)
-                ep.pop("endLine", None)
-            self._send_json({"ok": True, "source": "llm", "result": parsed})
-            return
+        # --- Open SSE stream ---
+        self._send_sse_headers()
 
-        # --- Mode: scenes ---
-        if mode == "scenes":
-            script_lines = script_text.split('\n')
-            numbered_text = '\n'.join(f'{i+1}: {line}' for i, line in enumerate(script_lines))
+        try:
+            # --- Mode: episodes (2-stage) ---
+            if mode == "episodes":
+                script_lines = script_text.split('\n')
+                numbered_text = '\n'.join(f'{i+1}: {line}' for i, line in enumerate(script_lines))
+
+                # Stage 1: Extract episodes
+                self._send_sse_event("stage", {"stage": "episodes", "text": "正在分析剧集结构..."})
+                ep_prompt = (
+                    "你是一个专业的剧本分析师。请分析以下带行号的剧本文本，将其拆分为剧集(Episode)。\n"
+                    "请严格按照以下JSON格式返回结果，不要包含任何其他文字说明：\n"
+                    '{"episodes": [{"title": "剧集标题", "summary": "剧集概要(50-100字)", "startLine": 1, "endLine": 50, "tags": ["标签"]}]}\n'
+                    "要求：\n"
+                    "- 每个episode的startLine和endLine必须准确对应该剧集在原文中的行号范围(1-based, inclusive)\n"
+                    "- 所有episode的行号范围应连续覆盖全文，不重叠不遗漏\n"
+                    "- 保持JSON格式严格正确"
+                )
+                ep_user = f"请分析以下带行号的剧本并拆分剧集：\n\n---\n{numbered_text}\n---"
+                ep_text = self._stream_llm_call(model, ep_prompt, ep_user)
+                ep_parsed = self._parse_llm_json(ep_text)
+                if ep_parsed is None:
+                    return
+
+                # Stage 2: Extract characters, props, scenes
+                self._send_sse_event("stage", {"stage": "elements", "text": "正在提取角色、道具、场景..."})
+                elem_prompt = (
+                    "你是一个专业的剧本分析师。请分析以下剧本文本，提取其中的角色、道具和场景。\n"
+                    "请严格按照以下JSON格式返回结果，不要包含任何其他文字说明：\n"
+                    '{\n'
+                    '  "characters": [{ "name": "角色名", "description": "外貌服装等详细描述", "tags": ["主角"] }],\n'
+                    '  "props": [{ "name": "道具名", "description": "外观描述", "category": "道具|场景|载具", "tags": [] }],\n'
+                    '  "scenes": [{ "name": "场景名", "description": "场景环境描述(地点/氛围/光线/建筑风格)", "category": "室外|室内|科幻|古代", "tags": [] }]\n'
+                    '}\n'
+                    "要求：\n"
+                    "- 角色描述需足够详细以生成参考图\n"
+                    "- 场景描述需包含环境、建筑风格、光线氛围等细节以生成参考图\n"
+                    "- 保持JSON格式严格正确"
+                )
+                elem_user = f"请从以下剧本中提取角色、道具和场景：\n\n---\n{script_text}\n---"
+                elem_text = self._stream_llm_call(model, elem_prompt, elem_user)
+                elem_parsed = self._parse_llm_json(elem_text)
+                if elem_parsed is None:
+                    return
+
+                # Merge and reconstruct
+                result = {"episodes": ep_parsed.get("episodes", [])}
+                result["characters"] = elem_parsed.get("characters", [])
+                result["props"] = elem_parsed.get("props", [])
+                result["scenes"] = elem_parsed.get("scenes", [])
+                self._reconstruct_text_from_lines(result, "episodes", script_lines, script_text)
+
+                self._send_sse_event("stage", {"stage": "done", "text": "分析完成"})
+                self._send_sse_event("result", {"ok": True, "source": "llm", "result": result})
+                return
+
+            # --- Mode: scenes (1-stage) ---
+            if mode == "scenes":
+                script_lines = script_text.split('\n')
+                numbered_text = '\n'.join(f'{i+1}: {line}' for i, line in enumerate(script_lines))
+                self._send_sse_event("stage", {"stage": "scenes", "text": "正在分析场景结构..."})
+                system_prompt = (
+                    "你是一个专业的剧本分析师。请分析以下带行号的剧集文本，将其拆分为场景(Scene)。\n"
+                    "请严格按照以下JSON格式返回结果，不要包含任何其他文字说明：\n"
+                    '{"scenes": [{"title": "场景标题", "summary": "场景描述(30-80字)", "startLine": 1, "endLine": 20, "tags": ["标签"]}]}\n'
+                    "要求：\n"
+                    "- 场景应根据地点、时间、氛围的变化来划分\n"
+                    "- 每个scene的startLine和endLine必须准确对应该场景在原文中的行号范围(1-based, inclusive)\n"
+                    "- 所有scene的行号范围应连续覆盖全文，不重叠不遗漏\n"
+                    "- 保持JSON格式严格正确"
+                )
+                user_text = f"请分析以下带行号的剧集文本并拆分场景：\n\n---\n{numbered_text}\n---"
+                full_text = self._stream_llm_call(model, system_prompt, user_text)
+                parsed = self._parse_llm_json(full_text)
+                if parsed is None:
+                    return
+                self._reconstruct_text_from_lines(parsed, "scenes", script_lines, script_text)
+                self._send_sse_event("stage", {"stage": "done", "text": "分析完成"})
+                self._send_sse_event("result", {"ok": True, "source": "llm", "result": parsed})
+                return
+
+            # --- Mode: shots (1-stage) ---
+            self._send_sse_event("stage", {"stage": "shots", "text": "正在分析镜头结构..."})
             system_prompt = (
-                "你是一个专业的剧本分析师。请分析以下带行号的剧集文本，将其拆分为场景(Scene)。\n"
+                "你是一个专业的剧本分析师和分镜师。请分析以下场景文本，将其拆分为镜头(Shot)。\n"
                 "请严格按照以下JSON格式返回结果，不要包含任何其他文字说明：\n"
                 "{\n"
-                '  "scenes": [{\n'
-                '    "title": "场景标题",\n'
-                '    "summary": "场景描述(30-80字)",\n'
-                '    "startLine": 1,\n'
-                '    "endLine": 20,\n'
-                '    "tags": ["标签"]\n'
+                '  "shots": [{\n'
+                '    "title": "镜头标题",\n'
+                '    "summary": "镜头简介(20-50字)，简要概括该镜头的内容，不要复制prompt",\n'
+                '    "prompt": "视频生成提示词，必须包含完整时间线。格式：先写画面总描述(构图/光线/动作/氛围)，然后按时间线分阶段描述。示例：[0-2s] 远景，阳光透过窗帘洒在书桌上，镜头缓慢推进。[2-5s] 中景，女孩坐在桌前翻阅相册，表情从微笑变为沉思。[5-8s] 特写，手指轻抚一张泛黄的照片，眼中泛起泪光。",\n'
+                '    "duration": 5,\n'
+                '    "characters": ["该镜头涉及的角色名"],\n'
+                '    "props": ["该镜头涉及的道具名"],\n'
+                '    "scenes": ["该镜头涉及的场景/环境名"]\n'
                 '  }]\n'
                 "}\n"
                 "要求：\n"
-                "- 场景应根据地点、时间、氛围的变化来划分\n"
-                "- 每个scene的startLine和endLine必须准确对应该场景在原文中的行号范围(1-based, inclusive)\n"
-                "- 所有scene的行号范围应连续覆盖全文，不重叠不遗漏\n"
+                "- summary是镜头简介，由你概括该镜头的核心内容，不能直接复制prompt字段的内容\n"
+                "- prompt是视频生成提示词，必须包含时间线标注（如 [0-2s]、[2-5s]），按时间线分段描述画面变化\n"
+                "  每个时间段应包含具体的画面描述：镜头运动(推/拉/摇/移)、角色动作、光影变化、氛围营造\n"
+                "- duration为该镜头的建议时长(秒)，根据镜头内容和时间线需要灵活设定，允许值为4-15之间的任意整数\n"
+                "  根据画面复杂度和动作时间线需要来判断时长，不必局限于固定几档\n"
+                "- characters和props填写该镜头中实际出现的角色和道具名称\n"
+                "- scenes填写该镜头中的场景/环境名称\n"
                 "- 保持JSON格式严格正确"
             )
-            user_text = f"请分析以下带行号的剧集文本并拆分场景，注意startLine和endLine要准确对应行号：\n\n---\n{numbered_text}\n---"
-            parsed = self._call_llm_and_get_result(model, system_prompt, user_text)
+            user_text = f"请分析以下场景文本并拆分镜头：\n\n---\n{script_text}\n---"
+            full_text = self._stream_llm_call(model, system_prompt, user_text)
+            parsed = self._parse_llm_json(full_text)
             if parsed is None:
                 return
-            # Reconstruct text from line ranges
-            for sc in parsed.get("scenes", []):
-                start = sc.get("startLine", 1) - 1
-                end = sc.get("endLine", len(script_lines))
-                if isinstance(start, int) and isinstance(end, int) and 0 <= start < len(script_lines):
-                    sc["text"] = "\n".join(script_lines[max(0, start):min(end, len(script_lines))])
-                else:
-                    sc["text"] = script_text
-                sc.pop("startLine", None)
-                sc.pop("endLine", None)
-            self._send_json({"ok": True, "source": "llm", "result": parsed})
-            return
+            self._send_sse_event("stage", {"stage": "done", "text": "分析完成"})
+            self._send_sse_event("result", {"ok": True, "source": "llm", "result": parsed})
 
-        # --- Mode: shots ---
-        system_prompt = (
-            "你是一个专业的剧本分析师和分镜师。请分析以下场景文本，将其拆分为镜头(Shot)。\n"
-            "请严格按照以下JSON格式返回结果，不要包含任何其他文字说明：\n"
-            "{\n"
-            '  "shots": [{\n'
-            '    "title": "镜头标题",\n'
-            '    "summary": "镜头简介(20-50字)，简要概括该镜头的内容，不要复制prompt",\n'
-            '    "prompt": "视频生成提示词，必须包含完整时间线。格式：先写画面总描述(构图/光线/动作/氛围)，然后按时间线分阶段描述。示例：[0-2s] 远景，阳光透过窗帘洒在书桌上，镜头缓慢推进。[2-5s] 中景，女孩坐在桌前翻阅相册，表情从微笑变为沉思。[5-8s] 特写，手指轻抚一张泛黄的照片，眼中泛起泪光。",\n'
-            '    "duration": 5,\n'
-            '    "characters": ["该镜头涉及的角色名"],\n'
-            '    "props": ["该镜头涉及的道具名"],\n'
-            '    "scenes": ["该镜头涉及的场景/环境名"]\n'
-            '  }]\n'
-            "}\n"
-            "要求：\n"
-            "- summary是镜头简介，由你概括该镜头的核心内容，不能直接复制prompt字段的内容\n"
-            "- prompt是视频生成提示词，必须包含时间线标注（如 [0-2s]、[2-5s]），按时间线分段描述画面变化\n"
-            "  每个时间段应包含具体的画面描述：镜头运动(推/拉/摇/移)、角色动作、光影变化、氛围营造\n"
-            "- duration为该镜头的建议时长(秒)，根据镜头内容和时间线需要灵活设定，允许值为4-15之间的任意整数\n"
-            "  根据画面复杂度和动作时间线需要来判断时长，不必局限于固定几档\n"
-            "- characters和props填写该镜头中实际出现的角色和道具名称\n"
-            "- scenes填写该镜头中的场景/环境名称\n"
-            "- 保持JSON格式严格正确"
-        )
-        user_text = f"请分析以下场景文本并拆分镜头：\n\n---\n{script_text}\n---"
-        llm_json_schema = {"shots": []}
-        self._call_llm_and_respond(model, system_prompt, user_text, llm_json_schema)
+        except Exception as e:
+            try:
+                self._send_sse_event("error", {"error": str(e)})
+            except Exception:
+                pass
+
+    def _send_sse_headers(self):
+        """Send SSE response headers."""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+
+    def _send_sse_event(self, event, data):
+        """Send a single SSE event to the client."""
+        payload = json.dumps(data, ensure_ascii=False)
+        self.wfile.write(f"event: {event}\ndata: {payload}\n\n".encode("utf-8"))
+        self.wfile.flush()
+
+    def _stream_llm_call(self, model, system_prompt, user_text):
+        """Call ARK Chat Completions API with stream=True, return full text."""
+        import socket
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_text}
+            ],
+            "stream": True
+        }
+        try:
+            headers = _ark_headers()
+            req = urllib.request.Request(
+                "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+                data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                headers=headers, method="POST"
+            )
+            full_text = ""
+            with urllib.request.urlopen(req, timeout=500) as resp:
+                for raw_line in resp:
+                    line = raw_line.decode("utf-8").strip()
+                    if not line.startswith("data: "):
+                        continue
+                    chunk = line[6:]
+                    if chunk == "[DONE]":
+                        break
+                    try:
+                        chunk_data = json.loads(chunk)
+                        content = chunk_data.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                        full_text += content
+                    except (json.JSONDecodeError, IndexError, KeyError):
+                        continue
+            return full_text
+        except (socket.timeout, TimeoutError):
+            self._send_sse_event("error", {"error": "AI 分析超时，请缩短剧本后重试"})
+            return None
+        except urllib.error.URLError as e:
+            msg = "AI 分析超时，请缩短剧本后重试" if "timed out" in str(e.reason).lower() else f"网络错误: {str(e.reason)}"
+            self._send_sse_event("error", {"error": msg})
+            return None
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode("utf-8", errors="replace")
+            self._send_sse_event("error", {"error": f"ARK API error: {err_body}"})
+            return None
+        except Exception as e:
+            self._send_sse_event("error", {"error": str(e)})
+            return None
+
+    def _parse_llm_json(self, text):
+        """Parse JSON from LLM text output. Send error via SSE if invalid. Return dict or None."""
+        if not text or not text.strip():
+            self._send_sse_event("error", {"error": "LLM 未返回有效内容"})
+            return None
+        json_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', text)
+        json_str = json_match.group(1) if json_match else text
+        try:
+            return json.loads(json_str.strip())
+        except json.JSONDecodeError:
+            # Try to find array/object in text
+            arr_match = re.search(r'[\[{][\s\S]*[}\]]', json_str)
+            if arr_match:
+                try:
+                    return json.loads(arr_match.group())
+                except json.JSONDecodeError:
+                    pass
+            self._send_sse_event("error", {"error": "LLM 返回的JSON格式无效，请重试"})
+            return None
+
+    def _reconstruct_text_from_lines(self, parsed, key, script_lines, fallback_text):
+        """Reconstruct text field from startLine/endLine ranges for episodes or scenes."""
+        for item in parsed.get(key, []):
+            start = item.get("startLine", 1) - 1  # convert to 0-based
+            end = item.get("endLine", len(script_lines))
+            if isinstance(start, int) and isinstance(end, int) and 0 <= start < len(script_lines):
+                item["text"] = "\n".join(script_lines[max(0, start):min(end, len(script_lines))])
+            else:
+                item["text"] = fallback_text
+            item.pop("startLine", None)
+            item.pop("endLine", None)
 
     def _handle_ark_chat(self):
         """POST /api/ark/chat — simple chat proxy for the StoryBoard AI assistant."""
