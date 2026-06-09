@@ -1629,6 +1629,7 @@ const StoryboardApp = {
             selectedChars: {}, selectedProps: {}, selectedScenes: {}, generatingImages: false,
             detailId: null, // 'ep-N' | 'ch-N' | 'pr-N' | 'scn-N' for detail view
             styleIndex: 0, styleCustom: '',
+            browserPath: '', browserItems: [],
         });
         const textModels = window.state?.textModels ? Object.values(window.state.textModels) : ['doubao-seed-2-0-pro-260215'];
         function friendlyModelName(id) {
@@ -1654,7 +1655,7 @@ const StoryboardApp = {
 
         // --- Interactive Script Writing (交互式剧本创作) ---
         const screenwriterState = reactive({
-            show: false, step: 'chat',  // 'chat' | 'preview' | 'archives'
+            show: false, step: 'chat',  // 'chat' | 'preview' | 'archives' | 'import'
             messages: [], input: '', loading: false,
             ready: false,        // LLM 已输出 [READY_TO_WRITE]
             generating: false,   // 生成剧本调用进行中
@@ -1673,6 +1674,10 @@ const StoryboardApp = {
             // 续写模式
             screenplayId: '',       // 当前关联的剧本库条目 ID
             existingScreenplay: '', // 已有剧本全文（续写时注入提示词）
+            // 导入剧本
+            importMode: '',       // '' | 'lib' | 'workspace'
+            importPath: '',       // 工作空间浏览路径
+            importItems: [],      // 浏览列表项
         });
         const swParams = reactive({
             duration: '',       // '1-3min' | '3-5min' | '5-10min' | '10+min'
@@ -1766,6 +1771,7 @@ const StoryboardApp = {
                 outline: null, completedParts: [], failedParts: [], transcript: '', previewPage: 0,
                 archives: [], currentArchiveId: '', archiveName: '',
                 autoSaveTimer: null, screenplayId: '', existingScreenplay: '',
+                importMode: '', importItems: [], importPath: '',
             });
             Object.assign(swParams, { duration: '', episodeCount: '', genre: '', tone: '', smartMode: true });
             loadConversationArchives();
@@ -1954,10 +1960,15 @@ const StoryboardApp = {
                 screenwriterState.error = '❌ 补充生成失败：' + e.message;
             } finally { screenwriterState.generating = false; screenwriterState.genProgress = ''; }
         }
+        function openScriptImportFromScreenwriter() {
+            Object.assign(screenwriterState, {
+                step: 'import', importMode: '', importItems: [], importPath: '',
+            });
+        }
         function useScreenplayForImport() {
             const text = (screenwriterState.screenplay || '').trim();
             if (!text) return;
-            if (!confirm('将生成的剧本载入"剧本导入"进行拆分？')) return;
+            if (!confirm('将生成的剧本载入"剧本分析"进行拆分？')) return;
             closeScreenwriter();
             openScriptImport('episodes');
             scriptState.scriptText = text;
@@ -2037,6 +2048,7 @@ const StoryboardApp = {
                     screenwriterState.currentArchiveId = id;
                     screenwriterState.archiveName = name;
                     window.showToast && window.showToast('对话已保存', 'success');
+                    loadConversationArchives(); // refresh archives list so button appears
                 }
             } catch (_) {}
         }
@@ -2199,6 +2211,120 @@ const StoryboardApp = {
                 screenwriterState.archiveName = '';
                 screenplayLibState.show = false;
             } catch (_) {}
+        }
+        // --- Import screenplay into screenwriter (导入已有剧本) ---
+        function importToScreenwriterMode(text, screenplayId) {
+            if (!text?.trim()) return;
+            Object.assign(screenwriterState, {
+                existingScreenplay: text.trim(),
+                screenplay: text.trim(),
+                screenplayId: screenplayId || '',
+                step: 'chat',
+                messages: [],
+                ready: true,
+                currentArchiveId: '',
+                archiveName: '',
+                importMode: '',
+                importItems: [],
+                importPath: '',
+            });
+        }
+        async function browseImportLib() {
+            if (!projectName.value) return;
+            try {
+                const dir = projectName.value + '/Storyboard/screenplays';
+                const r = await fetch('/api/workspace/browse?path=' + encodeURIComponent(dir));
+                if (!r.ok) { window.showToast && window.showToast('剧本库为空', 'warning'); return; }
+                const data = await r.json();
+                const files = (data.files || []).filter(f => f.name.endsWith('.json'));
+                const items = [];
+                for (const f of files) {
+                    try {
+                        const fr = await fetch('/api/workspace/read?path=' + encodeURIComponent(dir + '/' + f.name));
+                        if (!fr.ok) continue;
+                        const fd = await fr.json();
+                        const sp = typeof fd.content === 'string' ? JSON.parse(fd.content) : fd.content;
+                        if (sp.meta) {
+                            items.push({
+                                name: sp.meta.name || f.name,
+                                type: 'lib',
+                                id: sp.meta.id,
+                                filename: f.name,
+                                episodeCount: (sp.episodes || []).length,
+                                date: sp.meta.updatedAt || sp.meta.createdAt || '',
+                            });
+                        }
+                    } catch (_) {}
+                }
+                screenwriterState.importItems = items;
+                screenwriterState.importMode = 'lib';
+            } catch (_) {}
+        }
+        async function browseImportWorkspace() {
+            if (!projectName.value) { window.showToast && window.showToast('请先选择项目', 'error'); return; }
+            screenwriterState.importPath = '';
+            await _swBrowseDir('');
+            screenwriterState.importMode = 'workspace';
+        }
+        async function _swBrowseDir(path) {
+            try {
+                const r = await fetch('/api/workspace/browse?path=' + encodeURIComponent(path));
+                if (!r.ok) return;
+                const data = await r.json();
+                screenwriterState.importItems = [
+                    ...(data.folders || []).map(f => ({ name: f.name, type: 'folder' })),
+                    ...(data.files || []).filter(f => /\.(txt|md|doc|docx|json)$/i.test(f.name)).map(f => ({ name: f.name, type: 'file' })),
+                ];
+                screenwriterState.importPath = path;
+            } catch (_) {}
+        }
+        async function onImportBrowseNav(item) {
+            if (item.type === 'folder') {
+                const newPath = screenwriterState.importPath ? screenwriterState.importPath + '/' + item.name : item.name;
+                await _swBrowseDir(newPath);
+            } else if (item.type === 'lib') {
+                try {
+                    const dir = projectName.value + '/Storyboard/screenplays';
+                    const r = await fetch('/api/workspace/read?path=' + encodeURIComponent(dir + '/' + item.filename));
+                    if (!r.ok) return;
+                    const data = await r.json();
+                    const sp = typeof data.content === 'string' ? JSON.parse(data.content) : data.content;
+                    importToScreenwriterMode(sp.fullText || '', item.id);
+                    window.showToast && window.showToast('已载入剧本: ' + item.name, 'success');
+                } catch (_) { window.showToast && window.showToast('读取失败', 'error'); }
+            } else if (item.type === 'file') {
+                try {
+                    const filePath = screenwriterState.importPath ? screenwriterState.importPath + '/' + item.name : item.name;
+                    const r = await fetch('/api/workspace/read?path=' + encodeURIComponent(filePath));
+                    if (!r.ok) { window.showToast && window.showToast('读取文件失败', 'error'); return; }
+                    const data = await r.json();
+                    importToScreenwriterMode(data.content || '', '');
+                    window.showToast && window.showToast('已载入文件: ' + item.name, 'success');
+                } catch (_) { window.showToast && window.showToast('读取失败', 'error'); }
+            }
+        }
+        function onImportBrowseUp() {
+            const parts = screenwriterState.importPath.split('/');
+            parts.pop();
+            _swBrowseDir(parts.join('/'));
+        }
+        function onImportFileUpload() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.txt,.md,.text';
+            input.onchange = async () => {
+                const file = input.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = async () => {
+                    const text = reader.result;
+                    if (!text?.trim()) return;
+                    importToScreenwriterMode(text.trim(), '');
+                    window.showToast && window.showToast('已导入文件: ' + file.name, 'success');
+                };
+                reader.readAsText(file);
+            };
+            input.click();
         }
         async function deleteScreenplay(id) {
             if (!confirm('确定删除该剧本？')) return;
@@ -2503,13 +2629,89 @@ const StoryboardApp = {
             input.click();
         }
         async function onScriptWorkspacePick() {
-            const path = prompt('输入工作空间中剧本文件的路径（如: 剧本/第一集.txt）:');
-            if (!path) return;
+            if (!projectName.value) { window.showToast && window.showToast('请先选择项目', 'error'); return; }
+            scriptState.browserPath = '';
+            scriptState.step = 'browse';
+            await _browseScriptDir('');
+        }
+        async function _browseScriptDir(path) {
             try {
-                const r = await fetch('/api/workspace/read?path=' + encodeURIComponent(path));
-                if (r.ok) { const data = await r.json(); scriptState.scriptText = data.content || ''; scriptState.filename = path; }
-                else { window.showToast && window.showToast('读取文件失败', 'error'); }
-            } catch (e) { window.showToast && window.showToast('读取失败', 'error'); }
+                const r = await fetch('/api/workspace/browse?path=' + encodeURIComponent(path));
+                if (!r.ok) { scriptState.step = 'idle'; return; }
+                const data = await r.json();
+                scriptState.browserItems = [
+                    ...(data.folders || []).map(f => ({ name: f.name, type: 'folder' })),
+                    ...(data.files || []).filter(f => /\.(txt|md|doc|docx|json)$/i.test(f.name)).map(f => ({ name: f.name, type: 'file' })),
+                ];
+                scriptState.browserPath = path;
+            } catch (_) { scriptState.step = 'idle'; }
+        }
+        async function onScriptBrowserNav(item) {
+            if (item.type === 'folder') {
+                const newPath = scriptState.browserPath ? scriptState.browserPath + '/' + item.name : item.name;
+                await _browseScriptDir(newPath);
+            } else {
+                const filePath = scriptState.browserPath ? scriptState.browserPath + '/' + item.name : item.name;
+                try {
+                    const r = await fetch('/api/workspace/read?path=' + encodeURIComponent(filePath));
+                    if (r.ok) {
+                        const data = await r.json();
+                        scriptState.scriptText = data.content || '';
+                        scriptState.filename = item.name;
+                        scriptState.step = 'idle';
+                    } else { window.showToast && window.showToast('读取文件失败', 'error'); }
+                } catch (_) { window.showToast && window.showToast('读取失败', 'error'); }
+            }
+        }
+        function onScriptBrowserUp() {
+            const parts = scriptState.browserPath.split('/');
+            parts.pop();
+            const parent = parts.join('/');
+            _browseScriptDir(parent);
+        }
+        async function onScriptLibImport() {
+            if (!projectName.value) return;
+            try {
+                const dir = projectName.value + '/Storyboard/screenplays';
+                const r = await fetch('/api/workspace/browse?path=' + encodeURIComponent(dir));
+                if (!r.ok) { window.showToast && window.showToast('剧本库为空', 'warning'); return; }
+                const data = await r.json();
+                const files = (data.files || []).filter(f => f.name.endsWith('.json'));
+                if (files.length === 0) { window.showToast && window.showToast('剧本库为空', 'warning'); return; }
+                scriptState.browserItems = [];
+                for (const f of files) {
+                    try {
+                        const fr = await fetch('/api/workspace/read?path=' + encodeURIComponent(dir + '/' + f.name));
+                        if (!fr.ok) continue;
+                        const fd = await fr.json();
+                        const sp = typeof fd.content === 'string' ? JSON.parse(fd.content) : fd.content;
+                        if (sp.meta) {
+                            scriptState.browserItems.push({
+                                name: sp.meta.name || f.name,
+                                type: 'lib',
+                                id: sp.meta.id,
+                                filename: f.name,
+                                episodeCount: (sp.episodes || []).length,
+                                date: sp.meta.updatedAt || sp.meta.createdAt || '',
+                            });
+                        }
+                    } catch (_) {}
+                }
+                scriptState.browserPath = '__lib__';
+                scriptState.step = 'browse';
+            } catch (_) {}
+        }
+        async function onScriptLibSelect(item) {
+            try {
+                const dir = projectName.value + '/Storyboard/screenplays';
+                const r = await fetch('/api/workspace/read?path=' + encodeURIComponent(dir + '/' + item.filename));
+                if (!r.ok) return;
+                const data = await r.json();
+                const sp = typeof data.content === 'string' ? JSON.parse(data.content) : data.content;
+                scriptState.scriptText = sp.fullText || '';
+                scriptState.filename = item.name;
+                scriptState.step = 'idle';
+            } catch (_) { window.showToast && window.showToast('读取失败', 'error'); }
         }
         function onGlobalClick(e) {
             if (treeVisible.value) {
@@ -2547,8 +2749,9 @@ const StoryboardApp = {
             libraryState, openLibrary, closeLibrary, addLibraryItem, deleteLibraryItem, onLibField, onLibTags, uploadLibImage, generateLibImage,
             toggleBatchMode, toggleSelectLibItem, batchDeleteLibItems,
             scriptState, openScriptImport, closeScriptImport, startScriptAnalysis, generateSelectedImages, confirmImport,
-            onScriptFileInput, onScriptWorkspacePick, textModels, friendlyModelName,
-            screenwriterState, swParams, openScreenwriter, closeScreenwriter, sendScreenwriterMessage, generateScreenplay, retryFailedParts, useScreenplayForImport, saveScreenplayToWorkspace,
+            onScriptFileInput, onScriptWorkspacePick, onScriptBrowserNav, onScriptBrowserUp, onScriptLibImport, onScriptLibSelect, textModels, friendlyModelName,
+            screenwriterState, swParams, openScreenwriter, closeScreenwriter, sendScreenwriterMessage, generateScreenplay, retryFailedParts, openScriptImportFromScreenwriter, useScreenplayForImport, saveScreenplayToWorkspace,
+            importToScreenwriterMode, browseImportLib, browseImportWorkspace, onImportBrowseNav, onImportBrowseUp, onImportFileUpload,
             loadConversationArchives, saveConversationArchive, loadConversationArchive, deleteConversationArchive,
             screenplayLibState, openScreenplayLib, closeScreenplayLib, saveScreenplayToLib, startContinueWriting, deleteScreenplay, loadScreenplayToImport, importScreenplayFile,
             mentionState, getConnectedRefs, getCombinedPrompt, showMentionPopup, hideMentionPopup, insertMentionRef,
@@ -2581,7 +2784,7 @@ const StoryboardApp = {
             }
             tbBtns.push(html`<span class="sb-tb-sep"></span>`);
             if (this.nav.level === 'episode') {
-                tbBtns.push(html`<button onClick=${() => this.openScriptImport('episodes')} class="sb-tb-btn" title="导入剧本并拆分剧集">\u{1F4C4} 剧本导入</button>`);
+                tbBtns.push(html`<button onClick=${() => this.openScriptImport('episodes')} class="sb-tb-btn" title="导入剧本并拆分剧集">\u{1F4C4} 剧本分析</button>`);
                 tbBtns.push(html`<button onClick=${this.openScreenwriter} class="sb-tb-btn" title="AI 辅助剧本创作">\u{270D} 剧本创作</button>`);
             }
             if (this.nav.level === 'scene' && this.currentEpisode) {
@@ -3072,7 +3275,7 @@ const StoryboardApp = {
                     <div class="sb-imp-overlay" onClick=${this.closeScriptImport}>
                         <div class="sb-imp-dialog" onClick=${e => e.stopPropagation()}>
                             <div class="sb-imp-header">
-                                <h3>${this.scriptState.level === 'episodes' ? '剧本导入' : this.scriptState.level === 'scenes' ? '拆分场景' : '拆分镜头'}</h3>
+                                <h3>${this.scriptState.level === 'episodes' ? '剧本分析' : this.scriptState.level === 'scenes' ? '拆分场景' : '拆分镜头'}</h3>
                                 <button onClick=${this.closeScriptImport} class="sb-del-btn" title="关闭">✕</button>
                             </div>
                             <div class="sb-imp-body">
@@ -3082,8 +3285,9 @@ const StoryboardApp = {
                                             <div style="display:flex;align-items:center;justify-content:space-between">
                                                 <label style="margin:0">剧本内容</label>
                                                 <div style="display:flex;gap:4px">
-                                                    <button title="上传文件" onClick=${this.onScriptFileInput} style="background:none;border:none;cursor:pointer;padding:4px 6px;border-radius:4px;color:var(--text-muted);transition:color .15s" onMouseEnter=${e => e.target.style.color='var(--accent-indigo)'} onMouseLeave=${e => e.target.style.color='var(--text-muted)'}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
-                                                    <button title="从工作空间选择" onClick=${this.onScriptWorkspacePick} style="background:none;border:none;cursor:pointer;padding:4px 6px;border-radius:4px;color:var(--text-muted);transition:color .15s" onMouseEnter=${e => e.target.style.color='var(--accent-indigo)'} onMouseLeave=${e => e.target.style.color='var(--text-muted)'}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></button>
+                                                    <button class="sb-sw-icon-btn" title="上传文件" onClick=${this.onScriptFileInput}>\u{1F4E4}</button>
+                                                    <button class="sb-sw-icon-btn" title="从工作空间选择" onClick=${this.onScriptWorkspacePick}>\u{1F4C2}</button>
+                                                    <button class="sb-sw-icon-btn" title="从剧本库导入" onClick=${this.onScriptLibImport}>\u{1F4DA}</button>
                                                 </div>
                                             </div>
                                             ${this.scriptState.filename ? html`<p style="font-size:12px;color:var(--text-muted);margin:0">已选择: ${this.scriptState.filename}</p>` : null}
@@ -3109,6 +3313,32 @@ const StoryboardApp = {
                                     ` : html`
                                         <button class="sb-imp-primary" title="开始分析剧本" onClick=${this.startScriptAnalysis} disabled=${!this.scriptState.scriptText.trim()}>开始分析</button>
                                     `}
+                                ` : null}
+                                ${this.scriptState.step === 'browse' ? html`
+                                    <div class="sb-imp-section">
+                                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                                            <label style="margin:0">${this.scriptState.browserPath === '__lib__' ? '从剧本库选择' : '从工作空间选择'}</label>
+                                            <button class="sb-imp-btn" style="font-size:11px;padding:4px 10px" onClick=${() => { scriptState.step = 'idle'; }}>取消</button>
+                                        </div>
+                                        ${this.scriptState.browserPath && this.scriptState.browserPath !== '__lib__' ? html`
+                                            <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+                                                <button class="sb-sw-icon-btn" onClick=${this.onScriptBrowserUp} title="上级目录">⬆</button>
+                                                <span style="font-size:11px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.scriptState.browserPath || '/'}</span>
+                                            </div>
+                                        ` : null}
+                                        <div class="sb-sw-list" style="max-height:50vh">
+                                            ${this.scriptState.browserItems.length === 0 ? html`<p style="color:var(--text-muted);font-size:12px;text-align:center;padding:20px 0">暂无可选文件</p>` : null}
+                                            ${this.scriptState.browserItems.map((item, i) => html`
+                                                <div class="sb-sw-item" key=${i} style="cursor:pointer" onClick=${() => item.type === 'lib' ? this.onScriptLibSelect(item) : this.onScriptBrowserNav(item)}>
+                                                    <div style="min-width:0;flex:1">
+                                                        <div class="sb-sw-item-name">${item.type === 'folder' ? '📁 ' : item.type === 'lib' ? '📜 ' : '📄 '}${item.name}</div>
+                                                        ${item.type === 'lib' ? html`<div class="sb-sw-item-meta">${(item.date || '').slice(0, 10)} · ${item.episodeCount || 0} 部分</div>` : null}
+                                                    </div>
+                                                    ${item.type === 'folder' ? html`<span style="color:var(--text-muted);font-size:12px">→</span>` : null}
+                                                </div>
+                                            `)}
+                                        </div>
+                                    </div>
                                 ` : null}
                                 ${this.scriptState.step === 'preview' ? html`
                                     ${this.scriptState.detailId ? html`
@@ -3258,7 +3488,7 @@ const StoryboardApp = {
                     <div class="sb-imp-overlay" onClick=${this.closeScreenwriter}>
                         <div class=${this.screenwriterState.screenplay ? 'sb-imp-dialog sb-sw-two-col' : 'sb-imp-dialog'} onClick=${e => e.stopPropagation()}>
                             <div class="sb-imp-header">
-                                <h3>${this.screenwriterState.step === 'archives' ? '剧本创作 — 历史对话' : '剧本创作'}</h3>
+                                <h3>${this.screenwriterState.step === 'archives' ? '剧本创作 — 历史对话' : this.screenwriterState.step === 'import' ? '剧本创作 — 导入剧本' : '剧本创作'}</h3>
                                 <button onClick=${this.closeScreenwriter} class="sb-del-btn" title="关闭">✕</button>
                             </div>
                             <div class="sb-imp-body" style=${this.screenwriterState.screenplay ? 'display:flex;flex-direction:row;gap:0;overflow-y:hidden' : ''}>
@@ -3302,7 +3532,8 @@ const StoryboardApp = {
                                                 </select>
                                             ` : null}
                                             ${this.screenplayLibState.screenplays.length > 0 ? html`<button class="sb-sw-icon-btn" onClick=${this.openScreenplayLib} title="剧本库">\u{1F4DA}</button>` : null}
-                                            ${this.screenwriterState.archives.length > 0 ? html`<button class="sb-sw-icon-btn" onClick=${() => { this.screenwriterState.step = 'archives'; }} title="历史对话">\u{1F4C2}</button>` : null}
+                                            <button class="sb-sw-icon-btn" onClick=${this.openScriptImportFromScreenwriter} title="导入已有剧本">\u{1F4C4}</button>
+                                            <button class="sb-sw-icon-btn" onClick=${() => { this.loadConversationArchives(); this.screenwriterState.step = 'archives'; }} title="历史对话">\u{1F4C2}</button>
                                         </div>
                                         ${this.screenwriterState.error ? html`<div class="sb-imp-error"><span>${this.screenwriterState.error}</span><button class="sb-sw-icon-btn" onClick=${() => { this.screenwriterState.error = ''; }} title="关闭" style="font-size:12px;padding:0 4px;color:var(--accent-red)">✕</button></div>` : null}
                                         <div style="position:relative">
@@ -3348,7 +3579,7 @@ const StoryboardApp = {
                                             <button class="sb-imp-btn" title="重新生成" onClick=${this.generateScreenplay} disabled=${this.screenwriterState.generating}>${this.screenwriterState.generating ? (this.screenwriterState.genProgress || '生成中…') : '\u{1F501} 重新生成'}</button>
                                             ${this.screenwriterState.failedParts.length > 0 ? html`<button class="sb-imp-btn" style="color:var(--accent-indigo);font-weight:600" onClick=${this.retryFailedParts} disabled=${this.screenwriterState.generating} title="补充生成失败的部分">\u{1F504} 补充生成（${this.screenwriterState.failedParts.length} 部分）</button>` : null}
                                             <button class="sb-imp-btn" onClick=${() => this.saveScreenplayToLib(this.screenwriterState.screenplay, this.swParams, this.screenwriterState.existingScreenplay ? 'continue' : 'generated')}>\u{1F4DA} 保存到剧本库</button>
-                                            <button class="sb-imp-primary" onClick=${this.useScreenplayForImport}>用于剧本导入 →</button>
+                                            <button class="sb-imp-primary" onClick=${this.useScreenplayForImport}>用于剧本分析 →</button>
                                         </div>
                                     </div>
                                 ` : null}
@@ -3370,6 +3601,45 @@ const StoryboardApp = {
                                     </div>
                                     <div class="sb-imp-actions" style="margin-top:12px">
                                         <button class="sb-imp-btn" onClick=${() => { this.screenwriterState.step = 'chat'; }}>← 返回</button>
+                                    </div>
+                                ` : null}
+                                ${this.screenwriterState.step === 'import' && !this.screenwriterState.screenplay ? html`
+                                    <div style="padding:4px 0">
+                                        ${!this.screenwriterState.importMode ? html`
+                                            <p style="color:var(--text-muted);font-size:12px;text-align:center;margin:12px 0">选择导入来源，载入已有剧本进行交互式修改或续写</p>
+                                            <div style="display:flex;gap:8px;justify-content:center">
+                                                <button class="sb-imp-btn" onClick=${this.browseImportLib}>\u{1F4DA} 剧本库</button>
+                                                <button class="sb-imp-btn" onClick=${this.onImportFileUpload}>\u{1F4E4} 本地文件</button>
+                                                <button class="sb-imp-btn" onClick=${this.browseImportWorkspace}>\u{1F4C2} 工作空间</button>
+                                            </div>
+                                        ` : null}
+                                        ${this.screenwriterState.importMode ? html`
+                                            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                                                <label style="margin:0">${this.screenwriterState.importMode === 'lib' ? '从剧本库选择' : '从工作空间选择'}</label>
+                                                <button class="sb-imp-btn" style="font-size:11px;padding:4px 10px" onClick=${() => { this.screenwriterState.importMode = ''; this.screenwriterState.importItems = []; }}>重新选择来源</button>
+                                            </div>
+                                            ${this.screenwriterState.importMode === 'workspace' && this.screenwriterState.importPath ? html`
+                                                <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+                                                    <button class="sb-sw-icon-btn" onClick=${this.onImportBrowseUp} title="上级目录">\u{2B06}</button>
+                                                    <span style="font-size:11px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.screenwriterState.importPath || '/'}</span>
+                                                </div>
+                                            ` : null}
+                                            <div class="sb-sw-list" style="max-height:50vh">
+                                                ${this.screenwriterState.importItems.length === 0 ? html`<p style="color:var(--text-muted);font-size:12px;text-align:center;padding:20px 0">暂无可选项目</p>` : null}
+                                                ${this.screenwriterState.importItems.map((item, i) => html`
+                                                    <div class="sb-sw-item" key=${i} style="cursor:pointer" onClick=${() => this.onImportBrowseNav(item)}>
+                                                        <div style="min-width:0;flex:1">
+                                                            <div class="sb-sw-item-name">${item.type === 'folder' ? '\u{1F4C1} ' : item.type === 'lib' ? '\u{1F4DC} ' : '\u{1F4C4} '}${item.name}</div>
+                                                            ${item.type === 'lib' ? html`<div class="sb-sw-item-meta">${(item.date || '').slice(0, 10)} · ${item.episodeCount || 0} 部分</div>` : null}
+                                                        </div>
+                                                        ${item.type === 'folder' ? html`<span style="color:var(--text-muted);font-size:12px">\u{2192}</span>` : null}
+                                                    </div>
+                                                `)}
+                                            </div>
+                                        ` : null}
+                                    </div>
+                                    <div class="sb-imp-actions" style="margin-top:12px">
+                                        <button class="sb-imp-btn" onClick=${() => { this.screenwriterState.step = 'chat'; this.screenwriterState.importMode = ''; }}>\u{2190} 返回</button>
                                     </div>
                                 ` : null}
                             </div>
@@ -3398,7 +3668,7 @@ const StoryboardApp = {
                                             </div>
                                             <div class="sb-sw-item-actions">
                                                 <button class="sb-sw-icon-btn" onClick=${() => this.startContinueWriting(sp.id)} title="续写/修改">\u{270D}\u{FE0F}</button>
-                                                <button class="sb-sw-icon-btn" onClick=${() => this.loadScreenplayToImport(sp.id)} title="载入剧本导入">\u{1F4C4}</button>
+                                                <button class="sb-sw-icon-btn" onClick=${() => this.loadScreenplayToImport(sp.id)} title="载入剧本分析">\u{1F4C4}</button>
                                                 <button class="sb-sw-icon-btn" onClick=${() => this.deleteScreenplay(sp.id)} title="删除剧本" style="color:var(--accent-red)">\u{1F5D1}</button>
                                             </div>
                                         </div>
