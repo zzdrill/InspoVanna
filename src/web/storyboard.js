@@ -3583,11 +3583,11 @@ const StoryboardApp = {
                                                 this.screenwriterState.screenplay = e.target.value;
                                             }
                                         }} placeholder="剧本内容..."></textarea>
-                                        <div class="sb-imp-actions" style="margin-top:8px;flex-wrap:wrap">
-                                            <button class="sb-imp-btn" title="重新生成" onClick=${this.generateScreenplay} disabled=${this.screenwriterState.generating}>${this.screenwriterState.generating ? (this.screenwriterState.genProgress || '生成中…') : '\u{1F501} 重新生成'}</button>
+                                        <div class="sb-imp-actions" style="margin-top:8px;flex-wrap:wrap;gap:6px">
                                             ${this.screenwriterState.failedParts.length > 0 ? html`<button class="sb-imp-btn" style="color:var(--accent-indigo);font-weight:600" onClick=${this.retryFailedParts} disabled=${this.screenwriterState.generating} title="补充生成失败的部分">\u{1F504} 补充生成（${this.screenwriterState.failedParts.length} 部分）</button>` : null}
-                                            <button class="sb-imp-btn" onClick=${() => this.saveScreenplayToLib(this.screenwriterState.screenplay, this.swParams, this.screenwriterState.existingScreenplay ? 'continue' : 'generated')}>\u{1F4DA} 保存到剧本库</button>
-                                            <button class="sb-imp-primary" onClick=${this.useScreenplayForImport}>用于剧本分析 →</button>
+                                            <button class="sb-sw-icon-btn" onClick=${this.generateScreenplay} disabled=${this.screenwriterState.generating} title="重新生成">\u{1F501}</button>
+                                            <button class="sb-sw-icon-btn" onClick=${() => this.saveScreenplayToLib(this.screenwriterState.screenplay, this.swParams, this.screenwriterState.existingScreenplay ? 'continue' : 'generated')} title="保存到剧本库">\u{1F4DA}</button>
+                                            <button class="sb-sw-icon-btn" onClick=${this.useScreenplayForImport} title="用于剧本分析">\u{1F4C4}</button>
                                         </div>
                                     </div>
                                 ` : null}
