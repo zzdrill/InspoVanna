@@ -2170,7 +2170,8 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
                 pass
 
     def _send_sse_headers(self):
-        """Send SSE response headers."""
+        """Send SSE response headers and force connection close after handler returns."""
+        self.close_connection = True  # Force close after streaming completes
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
