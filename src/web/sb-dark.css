@@ -1507,6 +1507,10 @@
     padding: 8px 12px;
     background: rgba(239, 68, 68, 0.1);
     border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
 }
 
 .sb-imp-progress {
@@ -2515,6 +2519,40 @@
     font-size: 12px;
     font-weight: 600;
     color: var(--text-primary);
+}
+
+/* Part tabs for screenplay preview */
+.sb-sw-tabs {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+.sb-sw-tab {
+    background: var(--input-bg);
+    border: 1px solid var(--border-default);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s;
+}
+.sb-sw-tab:hover {
+    border-color: var(--accent-indigo);
+    color: var(--text-primary);
+}
+.sb-sw-tab.active {
+    background: var(--accent-indigo-muted);
+    border-color: var(--accent-indigo);
+    color: var(--accent-indigo);
+    font-weight: 600;
+}
+.sb-sw-tab.failed {
+    border-color: var(--accent-red);
+    color: var(--accent-red);
+    opacity: 0.7;
 }
 .sb-sw-preview-text {
     flex: 1;
