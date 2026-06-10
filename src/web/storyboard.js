@@ -1604,8 +1604,13 @@ const StoryboardApp = {
             const extPrompt = getConnectedPrompt(nodeId);
             const base = prompt || extPrompt;
             if (!base) return '';
+            const refDesc = getRefDescription(nodeId);
+            return refDesc ? base + '\n\n' + refDesc : base;
+        }
+
+        function getRefDescription(nodeId) {
             const refs = getConnectedRefs(nodeId);
-            if (!refs.length) return base;
+            if (!refs.length) return '';
             const roleLabels = { reference: '参考图', firstFrame: '首帧', lastFrame: '尾帧' };
             const typeLabels = { image: '图片', video: '视频', audio: '音频' };
             const descs = refs.map((ref, i) => {
@@ -1613,7 +1618,7 @@ const StoryboardApp = {
                 const rl = ref.type === 'image' ? (roleLabels[ref.role] || '参考图') : (ref.type === 'video' ? '参考视频' : '参考音频');
                 return `${tl}${i + 1}为${ref.name}（${rl}）`;
             });
-            return base + '\n\n参考素材说明：' + descs.join('，') + '。';
+            return '参考素材说明：' + descs.join('，') + '。';
         }
 
         function showMentionPopup(nodeId) {
@@ -2827,7 +2832,7 @@ const StoryboardApp = {
             importToScreenwriterMode, browseImportLib, browseImportWorkspace, onImportBrowseNav, onImportBrowseUp, onImportFileUpload,
             loadConversationArchives, saveConversationArchive, loadConversationArchive, deleteConversationArchive,
             screenplayLibState, openScreenplayLib, closeScreenplayLib, saveScreenplayToLib, startContinueWriting, deleteScreenplay, loadScreenplayToImport, importScreenplayFile,
-            mentionState, getConnectedRefs, getCombinedPrompt, showMentionPopup, hideMentionPopup, insertMentionRef,
+            mentionState, getConnectedRefs, getCombinedPrompt, getRefDescription, showMentionPopup, hideMentionPopup, insertMentionRef,
             globalSettings, openGlobalSettings, closeGlobalSettings, applyGlobalImageSettings, applyGlobalVideoSettings,
         };
     },
@@ -3014,6 +3019,7 @@ const StoryboardApp = {
                                 </div>
                                 <textarea value=${props.image?.prompt || ''} onInput=${e => this.onPropField('image', 'prompt', e)} rows="5" placeholder="图像提示词..." class=${this.hasPromptEdge(et.id) ? 'sb-readonly' : ''}></textarea>
                                 ${this.hasPromptEdge(et.id) ? html`<p style="font-size:11px;color:var(--text-secondary);margin:2px 0">已连接提示词节点，提示词由连线提供</p>` : null}
+                                ${this.getRefDescription(et.id) ? html`<div style="font-size:11px;color:var(--text-secondary);margin:2px 0;padding:4px 6px;background:var(--bg-surface);border-radius:4px;border:1px solid var(--border-default)">${this.getRefDescription(et.id)}</div>` : null}
                                 <label>模型</label>
                                 <select value=${props.image?.model || ''} onChange=${e => { props.image.model = e.target.value; props.image.sizeTier = (this.getImgTiers(e.target.value) || [])[0]; props.image.size = (this.getImgSizes(e.target.value, props.image.sizeTier) || [{}])[0]?.value || '1024x1024'; this.markDirty(); }}>
                                     <option value="doubao-seedream-4-0-250828">Seedream 4.0</option>
@@ -3045,6 +3051,7 @@ const StoryboardApp = {
                                 </div>
                                 <textarea value=${props.video?.prompt || ''} onInput=${e => this.onPropField('video', 'prompt', e)} rows="5" placeholder="视频提示词..." class=${this.hasPromptEdge(et.id) ? 'sb-readonly' : ''}></textarea>
                                 ${this.hasPromptEdge(et.id) ? html`<p style="font-size:11px;color:var(--text-secondary);margin:2px 0">已连接提示词节点，提示词由连线提供</p>` : null}
+                                ${this.getRefDescription(et.id) ? html`<div style="font-size:11px;color:var(--text-secondary);margin:2px 0;padding:4px 6px;background:var(--bg-surface);border-radius:4px;border:1px solid var(--border-default)">${this.getRefDescription(et.id)}</div>` : null}
                                 <label>模型</label>
                                 <select value=${props.video?.model || ''} onChange=${e => this.onModelChange('video', e)}><option value="doubao-seedance-2-0-260128">Seedance 2.0</option><option value="doubao-seedance-2-0-fast-260128">Seedance 2.0 Fast</option></select>
                                 ${!props.video?.followInput ? html`
