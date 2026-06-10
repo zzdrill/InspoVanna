@@ -530,7 +530,8 @@ const StoryboardApp = {
         // Generate
         function getConnectedPrompt(nodeId) {
             const sc = currentScene.value; if (!sc) return '';
-            const promptEdges = sc.flow.edges.filter(e => e.target === nodeId && (e.targetHandle === 'prompt-in' || e.targetHandle === 'video-prompt-in'));
+            const edges = nav.level === 'shot' ? vfGetEdges.value : sc.flow.edges;
+            const promptEdges = edges.filter(e => e.target === nodeId && (e.targetHandle === 'prompt-in' || e.targetHandle === 'video-prompt-in'));
             const prompts = [];
             for (const edge of promptEdges) {
                 const srcNode = sc.flow.nodes.find(n => n.id === edge.source);
@@ -1580,7 +1581,10 @@ const StoryboardApp = {
             const sc = currentScene.value;
             if (!sc) return [];
             const refs = [];
-            for (const edge of sc.flow.edges) {
+            // In shot view, read from Vue Flow's reactive edges for real-time updates;
+            // otherwise fall back to stored edges
+            const edges = nav.level === 'shot' ? vfGetEdges.value : sc.flow.edges;
+            for (const edge of edges) {
                 if (edge.target !== nodeId) continue;
                 if (edge.targetHandle === 'prompt-in' || edge.targetHandle === 'video-prompt-in') continue;
                 const srcNode = sc.flow.nodes.find(n => n.id === edge.source);
