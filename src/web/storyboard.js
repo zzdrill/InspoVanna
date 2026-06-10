@@ -2991,7 +2991,7 @@ const StoryboardApp = {
                                     <label style="margin:0">提示词</label>
                                     <button class="sb-mention-btn" disabled=${!this.getConnectedRefs(et.id).length} onClick=${() => this.showMentionPopup(et.id)} title=${this.getConnectedRefs(et.id).length ? '插入参考资源 (@)' : '需要连接参考资源节点'}>@ 参考</button>
                                 </div>
-                                <textarea value=${this.getCombinedPrompt(et.id) || props.image?.prompt || ''} onInput=${e => this.onPropField('image', 'prompt', e)} rows="5" placeholder="图像提示词..." class=${this.hasPromptEdge(et.id) ? 'sb-readonly' : ''}></textarea>
+                                <textarea value=${props.image?.prompt || ''} onInput=${e => this.onPropField('image', 'prompt', e)} rows="5" placeholder="图像提示词..." class=${this.hasPromptEdge(et.id) ? 'sb-readonly' : ''}></textarea>
                                 ${this.hasPromptEdge(et.id) ? html`<p style="font-size:11px;color:var(--text-secondary);margin:2px 0">已连接提示词节点，提示词由连线提供</p>` : null}
                                 <label>模型</label>
                                 <select value=${props.image?.model || ''} onChange=${e => { props.image.model = e.target.value; props.image.sizeTier = (this.getImgTiers(e.target.value) || [])[0]; props.image.size = (this.getImgSizes(e.target.value, props.image.sizeTier) || [{}])[0]?.value || '1024x1024'; this.markDirty(); }}>
@@ -3022,7 +3022,7 @@ const StoryboardApp = {
                                     <label style="margin:0">提示词</label>
                                     <button class="sb-mention-btn" disabled=${!this.getConnectedRefs(et.id).length} onClick=${() => this.showMentionPopup(et.id)} title=${this.getConnectedRefs(et.id).length ? '插入参考资源 (@)' : '需要连接参考资源节点'}>@ 参考</button>
                                 </div>
-                                <textarea value=${this.getCombinedPrompt(et.id) || props.video?.prompt || ''} onInput=${e => this.onPropField('video', 'prompt', e)} rows="5" placeholder="视频提示词..." class=${this.hasPromptEdge(et.id) ? 'sb-readonly' : ''}></textarea>
+                                <textarea value=${props.video?.prompt || ''} onInput=${e => this.onPropField('video', 'prompt', e)} rows="5" placeholder="视频提示词..." class=${this.hasPromptEdge(et.id) ? 'sb-readonly' : ''}></textarea>
                                 ${this.hasPromptEdge(et.id) ? html`<p style="font-size:11px;color:var(--text-secondary);margin:2px 0">已连接提示词节点，提示词由连线提供</p>` : null}
                                 <label>模型</label>
                                 <select value=${props.video?.model || ''} onChange=${e => this.onModelChange('video', e)}><option value="doubao-seedance-2-0-260128">Seedance 2.0</option><option value="doubao-seedance-2-0-fast-260128">Seedance 2.0 Fast</option></select>
