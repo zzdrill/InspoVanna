@@ -3014,14 +3014,14 @@ const StoryboardApp = {
                         ${et.type === 'shot' ? html`
                             ${d.nodeType === 'text' ? html`
                                 <label>提示词</label>
-                                <textarea value=${props.text?.prompt || ''} onInput=${e => this.onPropField('text', 'prompt', e)} rows="6" placeholder="输入提示词..."></textarea>
+                                <textarea value=${props.text?.prompt || ''} onInput=${e => this.onPropField('text', 'prompt', e)} rows="10" placeholder="输入提示词..."></textarea>
                             ` : null}
                             ${d.nodeType === 'image' ? html`
                                 <div style="display:flex;justify-content:space-between;align-items:center">
                                     <label style="margin:0">提示词</label>
                                     <button class="sb-mention-btn" disabled=${!this.getConnectedRefs(et.id).length} onClick=${() => this.showMentionPopup(et.id)} title=${this.getConnectedRefs(et.id).length ? '插入参考资源 (@)' : '需要连接参考资源节点'}>@ 参考</button>
                                 </div>
-                                <textarea value=${props.image?.prompt || ''} onInput=${e => this.onPropField('image', 'prompt', e)} rows="5" placeholder="图像提示词..." class=${this.hasPromptEdge(et.id) ? 'sb-readonly' : ''}></textarea>
+                                <textarea value=${props.image?.prompt || ''} onInput=${e => this.onPropField('image', 'prompt', e)} rows="8" placeholder="图像提示词..." class=${this.hasPromptEdge(et.id) ? 'sb-readonly' : ''}></textarea>
                                 ${this.hasPromptEdge(et.id) ? html`<p style="font-size:11px;color:var(--text-secondary);margin:2px 0">已连接提示词节点，提示词由连线提供</p>` : null}
                                 ${this.getRefDescription(et.id) ? html`<div style="font-size:11px;color:var(--text-secondary);margin:2px 0;padding:4px 6px;background:var(--bg-surface);border-radius:4px;border:1px solid var(--border-default)">${this.getRefDescription(et.id)}</div>` : null}
                                 <label>模型</label>
@@ -3053,7 +3053,7 @@ const StoryboardApp = {
                                     <label style="margin:0">提示词</label>
                                     <button class="sb-mention-btn" disabled=${!this.getConnectedRefs(et.id).length} onClick=${() => this.showMentionPopup(et.id)} title=${this.getConnectedRefs(et.id).length ? '插入参考资源 (@)' : '需要连接参考资源节点'}>@ 参考</button>
                                 </div>
-                                <textarea value=${props.video?.prompt || ''} onInput=${e => this.onPropField('video', 'prompt', e)} rows="5" placeholder="视频提示词..." class=${this.hasPromptEdge(et.id) ? 'sb-readonly' : ''}></textarea>
+                                <textarea value=${props.video?.prompt || ''} onInput=${e => this.onPropField('video', 'prompt', e)} rows="8" placeholder="视频提示词..." class=${this.hasPromptEdge(et.id) ? 'sb-readonly' : ''}></textarea>
                                 ${this.hasPromptEdge(et.id) ? html`<p style="font-size:11px;color:var(--text-secondary);margin:2px 0">已连接提示词节点，提示词由连线提供</p>` : null}
                                 ${this.getRefDescription(et.id) ? html`<div style="font-size:11px;color:var(--text-secondary);margin:2px 0;padding:4px 6px;background:var(--bg-surface);border-radius:4px;border:1px solid var(--border-default)">${this.getRefDescription(et.id)}</div>` : null}
                                 <label>模型</label>
