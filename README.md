@@ -55,7 +55,7 @@ cd InspoVanna
 
 **方式二：手动下载**
 
-前往 [Releases 页面](https://github.com/zzdrill/InspoVanna/releases) 下载最新版本压缩包，或点击仓库页面绿色「Code」按钮 →「Download ZIP」下载。解压后进入项目目录即可。
+点击仓库页面绿色「Code」按钮 →「Download ZIP」下载。解压后进入项目目录即可。
 
 ### 2. 启动服务
 
