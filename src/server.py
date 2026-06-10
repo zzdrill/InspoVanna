@@ -266,10 +266,19 @@ def ark_video_create(model, content, ratio, duration, resolution="720p", waterma
 
     url = f"{ARK_BASE}/contents/generations/tasks"
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=_ark_headers(), method="POST")
 
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            req = urllib.request.Request(url, data=data, headers=_ark_headers(), method="POST")
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except (ConnectionError, OSError) as e:
+            if attempt < max_retries - 1:
+                print(f"[WARN] ARK video create attempt {attempt + 1} failed: {e}, retrying...")
+                import time; time.sleep(2)
+            else:
+                raise
 
 
 def ark_video_get_task(task_id):
