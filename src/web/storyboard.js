@@ -3038,7 +3038,7 @@ const StoryboardApp = {
                         <label>简介</label>
                         <textarea value=${d.summary || ''} onInput=${e => this.onEditField('summary', e)} rows="4" placeholder="简要描述..."></textarea>
                         <label>备注</label>
-                        <textarea value=${d.notes || ''} onInput=${e => this.onEditField('notes', e)} rows="2" placeholder="补充备注..."></textarea>
+                        <textarea value=${d.notes || ''} onInput=${e => this.onEditField('notes', e)} rows="1" placeholder="补充备注..."></textarea>
                         ${et.type === 'shot' ? html`
                             ${d.nodeType === 'text' ? html`
                                 <label>提示词</label>
