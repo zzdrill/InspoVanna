@@ -1090,11 +1090,29 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
         full_path = os.path.join(save_dir, filename)
 
         try:
-            # Download from URL
+            # Download from URL with retry for large files
             print(f"[INFO] Downloading: {url[:80]}...")
-            req = urllib.request.Request(url, headers={"User-Agent": "InspoVanna/1.0"})
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                file_data = resp.read()
+            max_retries = 3
+            file_data = b""
+            for attempt in range(max_retries):
+                try:
+                    req = urllib.request.Request(url, headers={"User-Agent": "InspoVanna/1.0"})
+                    with urllib.request.urlopen(req, timeout=120) as resp:
+                        # Read in chunks to avoid IncompleteRead on large files
+                        chunks = []
+                        while True:
+                            chunk = resp.read(65536)  # 64KB chunks
+                            if not chunk:
+                                break
+                            chunks.append(chunk)
+                        file_data = b"".join(chunks)
+                    break  # success
+                except Exception as dl_err:
+                    if attempt < max_retries - 1:
+                        print(f"[WARN] Download attempt {attempt + 1} failed: {dl_err}, retrying...")
+                        import time; time.sleep(1)
+                    else:
+                        raise dl_err
 
             with open(full_path, "wb") as f:
                 f.write(file_data)
