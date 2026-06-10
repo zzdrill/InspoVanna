@@ -722,34 +722,6 @@
             }
         }
 
-        async function callArkAPI(endpoint, data) {
-            if (!state.arkApiKey) {
-                showToast('请先配置火山方舟 API Key', 'error');
-                showPage('settings');
-                return null;
-            }
-
-            try {
-                const response = await fetch(endpoint, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${state.arkApiKey}`
-                    },
-                    body: JSON.stringify(data)
-                });
-
-                if (!response.ok) {
-                    throw new Error(`API调用失败: ${response.status}`);
-                }
-
-                return await response.json();
-            } catch (error) {
-                showToast(`API错误: ${error.message}`, 'error');
-                return null;
-            }
-        }
-
         // ========== Page Rendering ==========
         function showPage(pageName) {
             // Save textarea values before re-render
@@ -3373,11 +3345,10 @@
             try {
                 for (let callIdx = 0; callIdx < apiCallCount; callIdx++) {
                     const requestBody = buildRequestBody();
-                    const response = await fetch('https://ark.cn-beijing.volces.com/api/v3/images/generations', {
+                    const response = await fetch('/api/ark/image-gen', {
                         method: 'POST',
                         headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${state.arkApiKey}`
+                            'Content-Type': 'application/json'
                         },
                         body: JSON.stringify(requestBody)
                     });
@@ -3573,8 +3544,8 @@
                 throw new Error('请先在设置页面配置模型ID');
             }
 
-            // 火山方舟API端点 - 使用responses接口
-            const endpoint = 'https://ark.cn-beijing.volces.com/api/v3/responses';
+            // 火山方舟API端点 - 通过本地后端代理
+            const endpoint = '/api/ark/responses';
 
             // Build input array from all conversation messages
             const input = [];
@@ -3646,8 +3617,7 @@
                 const response = await fetch(endpoint, {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${state.arkApiKey}`
+                        'Content-Type': 'application/json'
                     },
                     body: JSON.stringify(requestData)
                 });
@@ -5086,9 +5056,12 @@
                 return false;
             }
 
-            if (settings.arkApiKey) state.arkApiKey = settings.arkApiKey;
-            if (settings.tosAk) state.tosAk = settings.tosAk;
-            if (settings.tosSk) state.tosSk = settings.tosSk;
+            // Sensitive fields may be booleans (true/false) from the safe config endpoint,
+            // or real string values from imported config files.
+            // Booleans are enough for status display; actual API calls go through backend proxies.
+            if (settings.arkApiKey !== undefined && settings.arkApiKey !== null) state.arkApiKey = settings.arkApiKey;
+            if (settings.tosAk !== undefined && settings.tosAk !== null) state.tosAk = settings.tosAk;
+            if (settings.tosSk !== undefined && settings.tosSk !== null) state.tosSk = settings.tosSk;
             if (settings.tosRegion) state.tosRegion = settings.tosRegion;
             if (settings.tosBucket !== undefined) state.tosBucket = settings.tosBucket;
             if (settings.workspacePath !== undefined) state.workspacePath = settings.workspacePath;

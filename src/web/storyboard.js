@@ -623,8 +623,8 @@ const StoryboardApp = {
                     if (uploadedUrls.length === 1) body.image = uploadedUrls[0];
                     else if (uploadedUrls.length > 1) body.image = uploadedUrls;
                 }
-                const r = await fetch('https://ark.cn-beijing.volces.com/api/v3/images/generations', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+                const r = await fetch('/api/ark/image-gen', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)
                 });
                 if (!r.ok) { const t = await r.text(); throw new Error('API错误: ' + t); }
@@ -854,9 +854,9 @@ const StoryboardApp = {
                 } else {
                     sysMsg = '你是一个专业的AI图像提示词优化专家。请将用户的提示词优化为适合AI图像生成的描述。要求：1.保留原始意图和核心内容；2.增强视觉细节描述（光线、色彩、构图、氛围）；3.补充画面风格、材质质感和画质相关描述；4.保持用户输入的原始语言，不要翻译；5.直接输出优化结果，不要解释。';
                 }
-                const r = await fetch('https://ark.cn-beijing.volces.com/api/v3/responses', {
+                const r = await fetch('/api/ark/responses', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         model,
                         input: [
@@ -911,9 +911,9 @@ const StoryboardApp = {
             const model = ps.currentModel;
             if (!apiKey || !model) return;
             try {
-                const r = await fetch('https://ark.cn-beijing.volces.com/api/v3/responses', {
+                const r = await fetch('/api/ark/responses', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         model,
                         input: [
@@ -1528,8 +1528,8 @@ const StoryboardApp = {
                 const folder = (projectName.value || '') + '/' + (_libFolder[type] || '场景库');
                 await ensureDir(folder);
                 const body = { model: 'doubao-seedream-4-0-250828', prompt, size: '2048x2048', response_format: 'url', sequential_image_generation: 'disabled' };
-                const r = await fetch('https://ark.cn-beijing.volces.com/api/v3/images/generations', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+                const r = await fetch('/api/ark/image-gen', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)
                 });
                 if (!r.ok) throw new Error('API错误');
@@ -2486,8 +2486,8 @@ const StoryboardApp = {
                         const folder = (projectName.value || '') + '/' + (_libFolder[item._type] || '场景库');
                         await ensureDir(folder);
                         const body = { model: 'doubao-seedream-4-0-250828', prompt, size: '2048x2048', response_format: 'url', sequential_image_generation: 'disabled' };
-                        const r = await fetch('https://ark.cn-beijing.volces.com/api/v3/images/generations', {
-                            method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+                        const r = await fetch('/api/ark/image-gen', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(body)
                         });
                         if (!r.ok) throw new Error('API错误');

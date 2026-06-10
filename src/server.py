@@ -236,6 +236,19 @@ def _ark_headers():
     }
 
 
+def _safe_config():
+    """Return a copy of _config with sensitive fields replaced by has_xxx booleans."""
+    import copy
+    safe = copy.deepcopy(_config)
+    vol = safe.get("volcano", {})
+    vol["ark_api_key"] = bool(vol.get("ark_api_key", ""))
+    vol["tos_ak"] = bool(vol.get("tos_ak", ""))
+    vol["tos_sk"] = bool(vol.get("tos_sk", ""))
+    vol["ai_mediakit_api"] = bool(vol.get("ai_mediakit_api", ""))
+    safe["volcano"] = vol
+    return safe
+
+
 def ark_video_create(model, content, ratio, duration, resolution="720p", watermark=True, tools=None, generate_audio=None):
     """Create a video generation task via ARK REST API. Returns the raw JSON response."""
     payload = {
@@ -439,7 +452,8 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
         # API: return config from config.json (for auto-load on startup)
         if path == "/api/config":
             try:
-                self._send_json(_config)
+                safe = _safe_config()
+                self._send_json(safe)
             except Exception as e:
                 self._send_error_json(f"Failed to read config: {str(e)}", 500)
             return
@@ -654,6 +668,10 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
             self._handle_script_analyze()
         elif path == "/api/ark/chat":
             self._handle_ark_chat()
+        elif path == "/api/ark/image-gen":
+            self._handle_ark_image_gen()
+        elif path == "/api/ark/responses":
+            self._handle_ark_responses()
         else:
             self._send_error_json("Not found", 404)
 
@@ -2297,6 +2315,62 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
             with urllib.request.urlopen(req, timeout=500) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
             self._send_json(result)
+        except Exception as e:
+            self._send_error_json(str(e), 500)
+
+    def _handle_ark_image_gen(self):
+        """POST /api/ark/image-gen — proxy for ARK image generation API."""
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length) if length > 0 else b""
+        try:
+            data = json.loads(body)
+        except (json.JSONDecodeError, TypeError):
+            self._send_error_json("Invalid JSON")
+            return
+        if not ARK_API_KEY:
+            self._send_error_json("ARK API Key not configured", 400)
+            return
+        try:
+            headers = _ark_headers()
+            req = urllib.request.Request(
+                "https://ark.cn-beijing.volces.com/api/v3/images/generations",
+                data=json.dumps(data, ensure_ascii=False).encode("utf-8"),
+                headers=headers, method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+            self._send_json(result)
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode("utf-8", errors="replace")
+            self._send_error_json(f"ARK API error: {err_body}", e.code)
+        except Exception as e:
+            self._send_error_json(str(e), 500)
+
+    def _handle_ark_responses(self):
+        """POST /api/ark/responses — proxy for ARK Responses API (text/multimodal chat)."""
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length) if length > 0 else b""
+        try:
+            data = json.loads(body)
+        except (json.JSONDecodeError, TypeError):
+            self._send_error_json("Invalid JSON")
+            return
+        if not ARK_API_KEY:
+            self._send_error_json("ARK API Key not configured", 400)
+            return
+        try:
+            headers = _ark_headers()
+            req = urllib.request.Request(
+                "https://ark.cn-beijing.volces.com/api/v3/responses",
+                data=json.dumps(data, ensure_ascii=False).encode("utf-8"),
+                headers=headers, method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=500) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+            self._send_json(result)
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode("utf-8", errors="replace")
+            self._send_error_json(f"ARK API error: {err_body}", e.code)
         except Exception as e:
             self._send_error_json(str(e), 500)
 
