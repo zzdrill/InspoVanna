@@ -44,12 +44,18 @@
 
 **环境要求：** Python 3.8+、[Git](https://git-scm.com)
 
-### 1. 克隆项目
+### 1. 获取项目
+
+**方式一：Git 克隆（推荐）**
 
 ```bash
 git clone https://github.com/zzdrill/InspoVanna.git
 cd InspoVanna
 ```
+
+**方式二：手动下载**
+
+前往 [Releases 页面](https://github.com/zzdrill/InspoVanna/releases) 下载最新版本压缩包，或点击仓库页面绿色「Code」按钮 →「Download ZIP」下载。解压后进入项目目录即可。
 
 ### 2. 启动服务
 
