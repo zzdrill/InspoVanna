@@ -42,13 +42,22 @@
 
 ## 🚀 快速开始
 
-**环境要求：** Python 3.8+
+**环境要求：** Python 3.8+、[Git](https://git-scm.com)
 
-### Windows
+### 1. 克隆项目
 
-双击 `run.bat`（或桌面快捷方式），首次运行会自动配置 Python 环境和依赖，完成后浏览器打开 `http://localhost:8765`。
+```bash
+git clone https://github.com/zzdrill/InspoVanna.git
+cd InspoVanna
+```
 
-### macOS / Linux
+### 2. 启动服务
+
+#### Windows
+
+双击 `run.bat`（或桌面快捷方式），首次运行会自动创建虚拟环境、安装依赖，完成后浏览器打开 `http://localhost:8765`。
+
+#### macOS / Linux
 
 ```bash
 chmod +x run.sh
@@ -61,7 +70,9 @@ chmod +x run.sh
 
 环境就绪后自动创建虚拟环境、安装依赖并启动服务。浏览器打开 `http://localhost:8765`。
 
-### 配置密钥
+> 💡 也可以手动启动：`pip install -r requirements.txt && python src/server.py`
+
+### 3. 配置密钥
 
 首次使用需在 **设置** 页面配置以下密钥（也可直接编辑根目录 `config.json`）：
 
