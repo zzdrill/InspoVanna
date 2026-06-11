@@ -2086,6 +2086,7 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
         script_text = data.get("script_text", "")
         mode = data.get("mode", "episodes")
         model = data.get("model") or _config.get("models", {}).get("text_default", "doubao-seed-2-0-pro-260215")
+        library_names = data.get("library_names") or {}
         if not ARK_API_KEY:
             self._send_error_json("ARK API Key not configured", 400)
             return
@@ -2184,6 +2185,22 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
 
             # --- Mode: shots (1-stage) ---
             self._send_sse_event("stage", {"stage": "shots", "text": "正在分析镜头结构..."})
+            # Build library name hint so the AI uses exact names from the library
+            lib_hint = ""
+            lib_chars = library_names.get("characters") or []
+            lib_props = library_names.get("props") or []
+            lib_scenes = library_names.get("scenes") or []
+            if lib_chars or lib_props or lib_scenes:
+                parts = []
+                if lib_chars: parts.append("角色: " + "、".join(lib_chars))
+                if lib_props: parts.append("道具: " + "、".join(lib_props))
+                if lib_scenes: parts.append("场景: " + "、".join(lib_scenes))
+                lib_hint = (
+                    "\n重要：以下是素材库中已有的角色/道具/场景名称（均已生成参考图）：\n"
+                    + "\n".join(parts) + "\n"
+                    "请务必使用上述列表中的【确切名称】填写每个镜头的 characters/props/scenes 字段。\n"
+                    "只填写该镜头中实际出现的、且名称在上面的素材；如果某个素材不在列表中，不要填写。\n"
+                )
             system_prompt = (
                 "你是一个专业的剧本分析师和分镜师。请分析以下场景文本，将其拆分为镜头(Shot)。\n"
                 "请严格按照以下JSON格式返回结果，不要包含任何其他文字说明：\n"
@@ -2206,7 +2223,7 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
                 "  根据画面复杂度和动作时间线需要来判断时长，不必局限于固定几档\n"
                 "- characters和props填写该镜头中实际出现的角色和道具名称\n"
                 "- scenes填写该镜头中的场景/环境名称\n"
-                "- 保持JSON格式严格正确"
+                "- 保持JSON格式严格正确" + lib_hint
             )
             user_text = f"请分析以下场景文本并拆分镜头：\n\n---\n{script_text}\n---"
             full_text = self._stream_llm_call(model, system_prompt, user_text)

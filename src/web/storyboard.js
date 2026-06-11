@@ -2460,10 +2460,19 @@ const StoryboardApp = {
             // 10 minute timeout
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 600000);
+            // For shot-level analysis, send library names so the AI uses exact names
+            const reqBody = { script_text: text, mode: scriptState.level, model: scriptState.model };
+            if (scriptState.level === 'shots') {
+                reqBody.library_names = {
+                    characters: Object.values(sbData.characters || {}).filter(c => c.imageAsset).map(c => c.name),
+                    props: Object.values(sbData.props || {}).filter(p => p.imageAsset).map(p => p.name),
+                    scenes: Object.values(sbData.scenes || {}).filter(s => s.imageAsset).map(s => s.name),
+                };
+            }
             try {
                 const r = await fetch('/api/script/analyze', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ script_text: text, mode: scriptState.level, model: scriptState.model }),
+                    body: JSON.stringify(reqBody),
                     signal: controller.signal
                 });
                 // Parse SSE stream
