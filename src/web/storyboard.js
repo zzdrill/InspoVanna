@@ -567,12 +567,18 @@ const StoryboardApp = {
             if (nt === 'image') {
                 const prompt = p.image?.prompt || extPrompt;
                 if (!prompt) { window.showToast && window.showToast('请先输入或连接提示词', 'warning'); return; }
-                doImageGenerate(shotNodeId, prompt, p.image, apiKey, nodeDir);
+                doImageGenerate(shotNodeId, prompt, p.image, apiKey, nodeDir).catch(e => {
+                    console.error('Image gen unhandled:', e);
+                    setNodeGenerating(shotNodeId, false);
+                });
             }
             else if (nt === 'video') {
                 const prompt = p.video?.prompt || extPrompt;
                 if (!prompt) { window.showToast && window.showToast('请先输入或连接提示词', 'warning'); return; }
-                doVideoGenerate(shotNodeId, prompt, p.video, apiKey, nodeDir);
+                doVideoGenerate(shotNodeId, prompt, p.video, apiKey, nodeDir).catch(e => {
+                    console.error('Video gen unhandled:', e);
+                    setNodeGenerating(shotNodeId, false);
+                });
             }
             else { window.showToast && window.showToast('提示词节点不支持直接生成', 'warning'); }
         }

@@ -1436,102 +1436,102 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
             self._send_error_json("ARK API Key not configured", 400)
             return
 
-        # Build content array for the API
-        content = []
-
-        # Add text prompt
-        if prompt:
-            content.append({"type": "text", "text": prompt})
-
-        def _upload_ref_url(url, default_ct="image/png"):
-            """Upload a reference URL to TOS. Handles data: and /workspace/ URLs."""
-            if url.startswith("data:"):
-                header, b64data = url.split(",", 1)
-                ct = header.split(":")[1].split(";")[0] if ":" in header else default_ct
-                import base64
-                file_data = base64.b64decode(b64data)
-            elif url.startswith("/workspace/"):
-                from urllib.parse import unquote as unq
-                rel = unq(url[len("/workspace/"):])
-                ws_path = get_workspace_path()
-                local_file = os.path.normpath(os.path.join(ws_path, rel))
-                if not local_file.startswith(ws_path) or not os.path.isfile(local_file):
-                    raise FileNotFoundError(f"Workspace file not found: {local_file}")
-                ct, _ = mimetypes.guess_type(local_file)
-                if ct is None:
-                    ct = default_ct
-                with open(local_file, "rb") as f:
-                    file_data = f.read()
-            else:
-                return url  # already a public URL
-            ext = ct.split("/")[-1] if "/" in ct else default_ct.split("/")[-1]
-            filename = f"ref_{uuid.uuid4().hex[:8]}.{ext}"
-            return upload_to_tos_cached(file_data, filename, ct)
-
-        # Upload images to TOS and add image_url entries
-        failed_images = []
-        for i, img in enumerate(images):
-            url = img.get("url", "")
-            role = img.get("role", "reference_image")
-            if not url:
-                continue
-
-            try:
-                url = _upload_ref_url(url, "image/png")
-            except Exception as e:
-                print(f"[WARN] Failed to upload image ref [{i}]: {e}")
-                failed_images.append({"index": i, "name": url[:60], "error": str(e)})
-                continue
-
-            content.append({
-                "type": "image_url",
-                "image_url": {"url": url},
-                "role": role,
-            })
-
-        # Upload videos to TOS and add video_url entries
-        failed_videos = []
-        for i, vid in enumerate(videos):
-            url = vid.get("url", "")
-            role = vid.get("role", "reference_video")
-            if not url:
-                continue
-
-            try:
-                url = _upload_ref_url(url, "video/mp4")
-            except Exception as e:
-                print(f"[WARN] Failed to upload video ref [{i}]: {e}")
-                failed_videos.append({"index": i, "name": url[:60], "error": str(e)})
-                continue
-
-            content.append({
-                "type": "video_url",
-                "video_url": {"url": url},
-                "role": role,
-            })
-
-        # Upload audios to TOS and add audio_url entries
-        failed_audios = []
-        for i, aud in enumerate(audios):
-            url = aud.get("url", "")
-            role = aud.get("role", "reference_audio")
-            if not url:
-                continue
-
-            try:
-                url = _upload_ref_url(url, "audio/mpeg")
-            except Exception as e:
-                print(f"[WARN] Failed to upload audio ref [{i}]: {e}")
-                failed_audios.append({"index": i, "name": url[:60], "error": str(e)})
-                continue
-
-            content.append({
-                "type": "audio_url",
-                "audio_url": {"url": url},
-                "role": role,
-            })
-
         try:
+            # Build content array for the API
+            content = []
+
+            # Add text prompt
+            if prompt:
+                content.append({"type": "text", "text": prompt})
+
+            def _upload_ref_url(url, default_ct="image/png"):
+                """Upload a reference URL to TOS. Handles data: and /workspace/ URLs."""
+                if url.startswith("data:"):
+                    header, b64data = url.split(",", 1)
+                    ct = header.split(":")[1].split(";")[0] if ":" in header else default_ct
+                    import base64
+                    file_data = base64.b64decode(b64data)
+                elif url.startswith("/workspace/"):
+                    from urllib.parse import unquote as unq
+                    rel = unq(url[len("/workspace/"):])
+                    ws_path = get_workspace_path()
+                    local_file = os.path.normpath(os.path.join(ws_path, rel))
+                    if not local_file.startswith(ws_path) or not os.path.isfile(local_file):
+                        raise FileNotFoundError(f"Workspace file not found: {local_file}")
+                    ct, _ = mimetypes.guess_type(local_file)
+                    if ct is None:
+                        ct = default_ct
+                    with open(local_file, "rb") as f:
+                        file_data = f.read()
+                else:
+                    return url  # already a public URL
+                ext = ct.split("/")[-1] if "/" in ct else default_ct.split("/")[-1]
+                filename = f"ref_{uuid.uuid4().hex[:8]}.{ext}"
+                return upload_to_tos_cached(file_data, filename, ct)
+
+            # Upload images to TOS and add image_url entries
+            failed_images = []
+            for i, img in enumerate(images):
+                url = img.get("url", "")
+                role = img.get("role", "reference_image")
+                if not url:
+                    continue
+
+                try:
+                    url = _upload_ref_url(url, "image/png")
+                except Exception as e:
+                    print(f"[WARN] Failed to upload image ref [{i}]: {e}")
+                    failed_images.append({"index": i, "name": url[:60], "error": str(e)})
+                    continue
+
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": url},
+                    "role": role,
+                })
+
+            # Upload videos to TOS and add video_url entries
+            failed_videos = []
+            for i, vid in enumerate(videos):
+                url = vid.get("url", "")
+                role = vid.get("role", "reference_video")
+                if not url:
+                    continue
+
+                try:
+                    url = _upload_ref_url(url, "video/mp4")
+                except Exception as e:
+                    print(f"[WARN] Failed to upload video ref [{i}]: {e}")
+                    failed_videos.append({"index": i, "name": url[:60], "error": str(e)})
+                    continue
+
+                content.append({
+                    "type": "video_url",
+                    "video_url": {"url": url},
+                    "role": role,
+                })
+
+            # Upload audios to TOS and add audio_url entries
+            failed_audios = []
+            for i, aud in enumerate(audios):
+                url = aud.get("url", "")
+                role = aud.get("role", "reference_audio")
+                if not url:
+                    continue
+
+                try:
+                    url = _upload_ref_url(url, "audio/mpeg")
+                except Exception as e:
+                    print(f"[WARN] Failed to upload audio ref [{i}]: {e}")
+                    failed_audios.append({"index": i, "name": url[:60], "error": str(e)})
+                    continue
+
+                content.append({
+                    "type": "audio_url",
+                    "audio_url": {"url": url},
+                    "role": role,
+                })
+
             result = ark_video_create(model, content, ratio, duration, resolution=resolution, watermark=watermark, tools=tools, generate_audio=generate_audio)
             print(f"[OK] Video task created: id={result.get('id')}, status={result.get('status')}")
             result["failed"] = {"images": failed_images, "videos": failed_videos, "audio": failed_audios}
