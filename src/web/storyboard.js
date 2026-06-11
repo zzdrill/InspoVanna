@@ -158,7 +158,7 @@ const ImageShotNode = {
         return html`<div class="sb-node sb-node-shot sb-node-image">
             <button class="sb-node-close" title="删除节点" onClick=${e => { e.stopPropagation(); this.act.del(this.id); }}>✕</button>
             <div class="sb-node-header"><span class="sb-node-icon">${iconSvg}</span><span class="sb-node-title">${d.title || '(未命名)'}</span></div>
-            ${d.generating ? html`<div class="sb-gen-progress"><span class="sb-spinner"></span><span>${d.genProgress || '生成中...'}</span></div>` : d.assetUrl ? html`<div class="sb-node-thumb" style="cursor:pointer" onClick=${e => { e.stopPropagation(); this.act.preview(this.id); }}><img src=${d.assetUrl} /></div>` : null}
+            ${d.generating ? html`<div class="sb-gen-progress"><span class="sb-spinner"></span><span>${d.genProgress || '生成中...'}</span><button class="sb-gen-cancel" title="取消" onClick=${e => { e.stopPropagation(); this.act.cancelGenerating(this.id); }}>✕</button></div>` : d.assetUrl ? html`<div class="sb-node-thumb" style="cursor:pointer" onClick=${e => { e.stopPropagation(); this.act.preview(this.id); }}><img src=${d.assetUrl} /></div>` : null}
             ${hist.length > 0 ? html`<div class="sb-history-bar">${hist.slice(-5).map(h => html`<div class=${'sb-history-item' + (h.selected ? ' active' : '')} onClick=${e => { e.stopPropagation(); this.act.selectHistory(this.id, h.path); }}><img src=${'/workspace/' + h.path} /><button class="sb-history-del" title="删除" onClick=${e => { e.stopPropagation(); this.act.deleteHistory(this.id, h.path); }}>✕</button></div>`)}</div>` : null}
             ${d.summary ? html`<div class="sb-node-summary">${d.summary}</div>` : null}
             <div class="sb-node-actions">
@@ -186,7 +186,7 @@ const VideoShotNode = {
         return html`<div class="sb-node sb-node-shot sb-node-video">
             <button class="sb-node-close" title="删除节点" onClick=${e => { e.stopPropagation(); this.act.del(this.id); }}>✕</button>
             <div class="sb-node-header"><span class="sb-node-icon">${ICON_VIDEO}</span><span class="sb-node-title">${d.title || '(未命名)'}</span>${d.duration ? html`<span class="sb-duration">${d.duration}s</span>` : null}</div>
-            ${d.generating ? html`<div class="sb-gen-progress"><span class="sb-spinner"></span><span>${d.genProgress || '生成中...'}</span></div>` : d.assetUrl ? html`<div class="sb-node-thumb" style="cursor:pointer" onClick=${e => { e.stopPropagation(); this.act.preview(this.id); }}><video src=${d.assetUrl} muted preload="metadata"></video></div>` : null}
+            ${d.generating ? html`<div class="sb-gen-progress"><span class="sb-spinner"></span><span>${d.genProgress || '生成中...'}</span><button class="sb-gen-cancel" title="取消" onClick=${e => { e.stopPropagation(); this.act.cancelGenerating(this.id); }}>✕</button></div>` : d.assetUrl ? html`<div class="sb-node-thumb" style="cursor:pointer" onClick=${e => { e.stopPropagation(); this.act.preview(this.id); }}><video src=${d.assetUrl} muted preload="metadata"></video></div>` : null}
             ${hist.length > 0 ? html`<div class="sb-history-bar">${hist.slice(-5).map(h => html`<div class=${'sb-history-item' + (h.selected ? ' active' : '')} onClick=${e => { e.stopPropagation(); this.act.selectHistory(this.id, h.path); }}><video src=${'/workspace/' + h.path} muted preload="metadata" /><button class="sb-history-del" title="删除" onClick=${e => { e.stopPropagation(); this.act.deleteHistory(this.id, h.path); }}>✕</button></div>`)}</div>` : null}
             ${d.summary ? html`<div class="sb-node-summary">${d.summary}</div>` : null}
             <div class="sb-node-actions">
@@ -813,6 +813,9 @@ const StoryboardApp = {
                 node.data = { ...node.data, generating, genProgress: progress || '' };
             }
         }
+        function cancelGenerating(nodeId) {
+            setNodeGenerating(nodeId, false);
+        }
 
         async function ensureDir(dir) {
             const parts = dir.split('/');
@@ -1103,7 +1106,7 @@ const StoryboardApp = {
             }
         }
 
-        provide(SB_ACTIONS, { drilldown: drillDown, del: deleteEntity, edit: startEdit, generate: generateFromShot, upload: uploadAsset, uploadLocal: uploadLocal, optimize: optimizePrompt, preview: openPreview, selectHistory, deleteHistory, hasOutput: hasOutputConnection, pickLibrary: pickFromLibrary, extractFrames });
+        provide(SB_ACTIONS, { drilldown: drillDown, del: deleteEntity, edit: startEdit, generate: generateFromShot, upload: uploadAsset, uploadLocal: uploadLocal, optimize: optimizePrompt, preview: openPreview, selectHistory, deleteHistory, cancelGenerating, hasOutput: hasOutputConnection, pickLibrary: pickFromLibrary, extractFrames });
 
         function onNodeDragStop() { saveFlowFromVueFlow(); markDirty(); }
         function onConnect(params) {

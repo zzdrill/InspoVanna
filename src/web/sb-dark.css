@@ -484,6 +484,22 @@
     border-radius: 6px;
     margin-top: 6px;
 }
+.sb-gen-progress span:last-of-type {
+    flex: 1;
+}
+.sb-gen-cancel {
+    background: none;
+    border: none;
+    color: var(--accent-indigo);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 0 4px;
+    opacity: 0.6;
+}
+.sb-gen-cancel:hover {
+    opacity: 1;
+    color: var(--accent-red);
+}
 
 .sb-spinner {
     display: inline-block;
