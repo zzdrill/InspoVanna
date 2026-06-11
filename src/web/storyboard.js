@@ -3847,7 +3847,7 @@ const StoryboardApp = {
                             <button class="sb-del-btn" title="关闭" onClick=${this.closePromptExpand}>✕</button>
                         </div>
                         <textarea class="sb-expand-textarea" value=${(this.editTarget?.data?.properties?.[this.expandState.nodeType])?.prompt || ''} onInput=${e => { if (this.editTarget?.data?.properties?.[this.expandState.nodeType]) { this.editTarget.data.properties[this.expandState.nodeType].prompt = e.target.value; this.markDirty(); } }} onKeyDown=${e => this.onPromptKeyDown(this.expandState.nodeId, this.expandState.nodeType, e)} rows="20" placeholder="输入提示词..."></textarea>
-                        ${this.getRefDescription(this.expandState.nodeId) ? html`<div style="font-size:11px;color:var(--text-secondary);padding:6px 12px;border-top:1px solid var(--border-default)">${this.getRefDescription(this.expandState.nodeId)}</div>` : null}
+                        ${this.getRefDescription(this.expandState.nodeId) ? html`<div style="font-size:11px;color:#666;padding:6px 12px;border-top:1px solid #e0e0e0">${this.getRefDescription(this.expandState.nodeId)}</div>` : null}
                     </div>
                 </div>
             ` : null}`;
