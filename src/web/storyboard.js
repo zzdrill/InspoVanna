@@ -529,6 +529,7 @@ const StoryboardApp = {
                     const idx = parseInt(el.dataset.idx);
                     const item = items[idx];
                     sh.properties[nt].workspaceAsset = item.path;
+                    sh.title = item.name;
                     syncNodeToFlow(nodeId); markDirty();
                     overlay.remove();
                     window.showToast && window.showToast('已关联: ' + item.name, 'success');
