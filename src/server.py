@@ -437,6 +437,14 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
     """Serves static files and handles TOS API requests."""
     protocol_version = "HTTP/1.1"
 
+    def handle_one_request(self):
+        """Override to silently catch connection aborts from client (e.g. video seek, page navigation)."""
+        try:
+            super().handle_one_request()
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError, OSError):
+            # Client disconnected mid-transfer — normal for video streaming / page navigation
+            pass
+
     def log_message(self, format, *args):
         print(f"[HTTP] {args[0] if args else format}")
 
