@@ -2688,21 +2688,33 @@ const StoryboardApp = {
             const sc = currentScene.value; if (!sc) return;
             // Build image maps from library
             const charImageMap = {};
-            Object.values(sbData.characters || {}).forEach(c => { if (c.imageAsset) charImageMap[c.name] = c.imageAsset; });
+            Object.values(sbData.characters || {}).forEach(c => { if (c.imageAsset) charImageMap[c.name.trim()] = c.imageAsset; });
             const propImageMap = {};
-            Object.values(sbData.props || {}).forEach(p => { if (p.imageAsset) propImageMap[p.name] = p.imageAsset; });
+            Object.values(sbData.props || {}).forEach(p => { if (p.imageAsset) propImageMap[p.name.trim()] = p.imageAsset; });
             const sceneImageMap = {};
-            Object.values(sbData.scenes || {}).forEach(s => { if (s.imageAsset) sceneImageMap[s.name] = s.imageAsset; });
+            Object.values(sbData.scenes || {}).forEach(s => { if (s.imageAsset) sceneImageMap[s.name.trim()] = s.imageAsset; });
+            // Diagnostic: log library state
+            const libCounts = { chars: Object.keys(charImageMap).length, props: Object.keys(propImageMap).length, scenes: Object.keys(sceneImageMap).length };
+            console.log('[importShots] Library with images:', libCounts, { charImageMap, propImageMap, sceneImageMap });
             // Flexible name matching: try exact match first, then substring match
             function findAsset(name, map) {
-                if (map[name]) return map[name];
+                const nm = (name || '').trim();
+                if (!nm) return null;
+                if (map[nm]) return map[nm];
                 for (const key of Object.keys(map)) {
-                    if (key.includes(name) || name.includes(key)) return map[key];
+                    if (key.includes(nm) || nm.includes(key)) return map[key];
                 }
                 return null;
             }
             function resolveRefs(names, map) {
-                return names.map(n => ({ name: n, asset: findAsset(n, map) })).filter(r => r.asset);
+                const unmatched = [];
+                const resolved = names.map(n => {
+                    const asset = findAsset(n, map);
+                    if (!asset) unmatched.push(n);
+                    return { name: n, asset };
+                }).filter(r => r.asset);
+                if (unmatched.length) console.warn('[importShots] Unmatched refs:', unmatched);
+                return resolved;
             }
             let xOff = 50;
             for (const shot of (result.shots || [])) {
