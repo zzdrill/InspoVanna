@@ -2706,42 +2706,42 @@ const StoryboardApp = {
                 }
                 return null;
             }
-            function resolveRefs(names, map) {
-                const unmatched = [];
+            function resolveRefs(names, map, unmatchedOut) {
                 const resolved = names.map(n => {
                     const asset = findAsset(n, map);
-                    if (!asset) unmatched.push(n);
+                    if (!asset) unmatchedOut.push(n);
                     return { name: n, asset };
                 }).filter(r => r.asset);
-                if (unmatched.length) console.warn('[importShots] Unmatched refs:', unmatched);
                 return resolved;
             }
             let xOff = 50;
+            const allUnmatched = [];
+            let imageNodeCount = 0;
             for (const shot of (result.shots || [])) {
-                const refChars = resolveRefs(shot.characters || [], charImageMap);
-                const refProps = resolveRefs(shot.props || [], propImageMap);
-                const refScenes = resolveRefs(shot.scenes || [], sceneImageMap);
+                const refChars = resolveRefs(shot.characters || [], charImageMap, allUnmatched);
+                const refProps = resolveRefs(shot.props || [], propImageMap, allUnmatched);
+                const refScenes = resolveRefs(shot.scenes || [], sceneImageMap, allUnmatched);
                 const imageNodes = [];
                 for (const r of refChars) {
                     const imgId = uid();
                     sc.shots[imgId] = { ...emptyShot(imgId, 'image', r.name), sceneId: nav.sceneId, summary: r.name + ' 参考图' };
                     sc.shots[imgId].properties.image.workspaceAsset = r.asset;
                     sc.flow.nodes.push({ id: imgId, type: 'imageShot', position: { x: xOff, y: 50 }, data: { ref: imgId } });
-                    imageNodes.push(imgId); xOff += 280;
+                    imageNodes.push(imgId); xOff += 280; imageNodeCount++;
                 }
                 for (const r of refProps) {
                     const imgId = uid();
                     sc.shots[imgId] = { ...emptyShot(imgId, 'image', r.name), sceneId: nav.sceneId, summary: r.name + ' 参考图' };
                     sc.shots[imgId].properties.image.workspaceAsset = r.asset;
                     sc.flow.nodes.push({ id: imgId, type: 'imageShot', position: { x: xOff, y: 50 }, data: { ref: imgId } });
-                    imageNodes.push(imgId); xOff += 280;
+                    imageNodes.push(imgId); xOff += 280; imageNodeCount++;
                 }
                 for (const r of refScenes) {
                     const imgId = uid();
                     sc.shots[imgId] = { ...emptyShot(imgId, 'image', r.name), sceneId: nav.sceneId, summary: r.name + ' 参考图' };
                     sc.shots[imgId].properties.image.workspaceAsset = r.asset;
                     sc.flow.nodes.push({ id: imgId, type: 'imageShot', position: { x: xOff, y: 50 }, data: { ref: imgId } });
-                    imageNodes.push(imgId); xOff += 280;
+                    imageNodes.push(imgId); xOff += 280; imageNodeCount++;
                 }
                 const vidId = uid();
                 sc.shots[vidId] = { ...emptyShot(vidId, 'video', shot.title || '镜头'), sceneId: nav.sceneId, summary: shot.summary || '' };
@@ -2755,7 +2755,10 @@ const StoryboardApp = {
             }
             syncFlowToVueFlow(); markDirty();
             scriptState.show = false;
-            window.showToast && window.showToast(`已导入 ${(result.shots || []).length} 个镜头`, 'success');
+            // Diagnostic toast: show match stats
+            const shotCount = (result.shots || []).length;
+            const msg = `已导入 ${shotCount} 个镜头，创建 ${imageNodeCount} 个参考图节点\n素材库(有图): 角色${libCounts.chars} 道具${libCounts.props} 场景${libCounts.scenes}` + (allUnmatched.length ? `\n未匹配: ${[...new Set(allUnmatched)].slice(0, 8).join('、')}` : '');
+            window.showToast && window.showToast(msg, imageNodeCount > 0 ? 'success' : 'warning', 8000);
         }
 
         function onScriptFileInput() {
