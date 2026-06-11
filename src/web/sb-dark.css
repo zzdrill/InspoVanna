@@ -1843,6 +1843,54 @@
     color: var(--text-primary);
 }
 
+/* Prompt expand overlay */
+.sb-expand-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--overlay-heavy);
+    z-index: 1002;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.sb-expand-dialog {
+    background: var(--dialog-bg);
+    border: 1px solid var(--border-default);
+    border-radius: 12px;
+    width: 640px;
+    max-width: 90vw;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: var(--shadow-lg);
+}
+.sb-expand-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-default);
+}
+.sb-expand-header h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.sb-expand-textarea {
+    flex: 1;
+    min-height: 300px;
+    padding: 12px 16px;
+    border: none;
+    outline: none;
+    resize: vertical;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 13px;
+    line-height: 1.6;
+    font-family: inherit;
+}
+
 .sb-mention-section {
     padding: 8px 12px;
 }

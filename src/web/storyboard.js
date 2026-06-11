@@ -1587,11 +1587,16 @@ const StoryboardApp = {
 
         // --- @mention for shot prompts ---
         const mentionState = reactive({ show: false, nodeId: null, refs: [] });
-        const expandedPrompts = reactive(new Set());
-        function togglePromptExpand(nodeId) {
-            if (expandedPrompts.has(nodeId)) expandedPrompts.delete(nodeId);
-            else expandedPrompts.add(nodeId);
+        const expandState = reactive({ show: false, nodeId: null, nodeType: null });
+        function openPromptExpand(nodeId) {
+            const sc = currentScene.value;
+            const sh = sc?.shots[nodeId];
+            if (!sh) return;
+            expandState.show = true;
+            expandState.nodeId = nodeId;
+            expandState.nodeType = sh.nodeType;
         }
+        function closePromptExpand() { expandState.show = false; }
 
         function getConnectedRefs(nodeId) {
             const sc = currentScene.value;
@@ -2869,7 +2874,7 @@ const StoryboardApp = {
             importToScreenwriterMode, browseImportLib, browseImportWorkspace, onImportBrowseNav, onImportBrowseUp, onImportFileUpload,
             loadConversationArchives, saveConversationArchive, loadConversationArchive, deleteConversationArchive,
             screenplayLibState, openScreenplayLib, closeScreenplayLib, saveScreenplayToLib, startContinueWriting, deleteScreenplay, loadScreenplayToImport, importScreenplayFile,
-            mentionState, getConnectedRefs, getCombinedPrompt, getRefDescription, showMentionPopup, hideMentionPopup, insertMentionRef, onPromptKeyDown, expandedPrompts, togglePromptExpand,
+            mentionState, getConnectedRefs, getCombinedPrompt, getRefDescription, showMentionPopup, hideMentionPopup, insertMentionRef, onPromptKeyDown, expandState, openPromptExpand, closePromptExpand,
             globalSettings, openGlobalSettings, closeGlobalSettings, applyGlobalImageSettings, applyGlobalVideoSettings,
         };
     },
@@ -3054,10 +3059,10 @@ const StoryboardApp = {
                                     <label style="margin:0">提示词</label>
                                     <div style="display:flex;gap:4px">
                                         <button class="sb-mention-btn" disabled=${!this.getConnectedRefs(et.id).length} onClick=${() => this.showMentionPopup(et.id)} title=${this.getConnectedRefs(et.id).length ? '插入参考资源 (@)' : '需要连接参考资源节点'}>@ 参考</button>
-                                        <button class="sb-mention-btn" onClick=${() => this.togglePromptExpand(et.id)} title=${this.expandedPrompts.has(et.id) ? '收起' : '展开'}>${this.expandedPrompts.has(et.id) ? '▼' : '▲'}</button>
+                                        <button class="sb-mention-btn" onClick=${() => this.openPromptExpand(et.id)} title="展开编辑">▲</button>
                                     </div>
                                 </div>
-                                <textarea value=${props.image?.prompt || ''} onInput=${e => this.onPropField('image', 'prompt', e)} onKeyDown=${e => this.onPromptKeyDown(et.id, 'image', e)} rows=${this.expandedPrompts.has(et.id) ? 24 : 12} placeholder="图像提示词..." class=${this.hasPromptEdge(et.id) ? 'sb-readonly' : ''}></textarea>
+                                <textarea value=${props.image?.prompt || ''} onInput=${e => this.onPropField('image', 'prompt', e)} onKeyDown=${e => this.onPromptKeyDown(et.id, 'image', e)} rows="12" placeholder="图像提示词..." class=${this.hasPromptEdge(et.id) ? 'sb-readonly' : ''}></textarea>
                                 ${this.hasPromptEdge(et.id) ? html`<p style="font-size:11px;color:var(--text-secondary);margin:2px 0">已连接提示词节点，提示词由连线提供</p>` : null}
                                 ${this.getRefDescription(et.id) ? html`<div style="font-size:11px;color:var(--text-secondary);margin:2px 0;padding:4px 6px;background:var(--bg-surface);border-radius:4px;border:1px solid var(--border-default)">${this.getRefDescription(et.id)}</div>` : null}
                                 <label>模型</label>
@@ -3089,10 +3094,10 @@ const StoryboardApp = {
                                     <label style="margin:0">提示词</label>
                                     <div style="display:flex;gap:4px">
                                         <button class="sb-mention-btn" disabled=${!this.getConnectedRefs(et.id).length} onClick=${() => this.showMentionPopup(et.id)} title=${this.getConnectedRefs(et.id).length ? '插入参考资源 (@)' : '需要连接参考资源节点'}>@ 参考</button>
-                                        <button class="sb-mention-btn" onClick=${() => this.togglePromptExpand(et.id)} title=${this.expandedPrompts.has(et.id) ? '收起' : '展开'}>${this.expandedPrompts.has(et.id) ? '▼' : '▲'}</button>
+                                        <button class="sb-mention-btn" onClick=${() => this.openPromptExpand(et.id)} title="展开编辑">▲</button>
                                     </div>
                                 </div>
-                                <textarea value=${props.video?.prompt || ''} onInput=${e => this.onPropField('video', 'prompt', e)} onKeyDown=${e => this.onPromptKeyDown(et.id, 'video', e)} rows=${this.expandedPrompts.has(et.id) ? 24 : 12} placeholder="视频提示词..." class=${this.hasPromptEdge(et.id) ? 'sb-readonly' : ''}></textarea>
+                                <textarea value=${props.video?.prompt || ''} onInput=${e => this.onPropField('video', 'prompt', e)} onKeyDown=${e => this.onPromptKeyDown(et.id, 'video', e)} rows="12" placeholder="视频提示词..." class=${this.hasPromptEdge(et.id) ? 'sb-readonly' : ''}></textarea>
                                 ${this.hasPromptEdge(et.id) ? html`<p style="font-size:11px;color:var(--text-secondary);margin:2px 0">已连接提示词节点，提示词由连线提供</p>` : null}
                                 ${this.getRefDescription(et.id) ? html`<div style="font-size:11px;color:var(--text-secondary);margin:2px 0;padding:4px 6px;background:var(--bg-surface);border-radius:4px;border:1px solid var(--border-default)">${this.getRefDescription(et.id)}</div>` : null}
                                 <label>模型</label>
@@ -3831,6 +3836,18 @@ const StoryboardApp = {
                                 `)}
                             </div>`;
                         })}
+                    </div>
+                </div>
+            ` : null}
+            ${this.expandState.show ? html`
+                <div class="sb-expand-overlay" onClick=${this.closePromptExpand}>
+                    <div class="sb-expand-dialog" onClick=${e => e.stopPropagation()}>
+                        <div class="sb-expand-header">
+                            <h3>编辑${this.expandState.nodeType === 'image' ? '图像' : '视频'}提示词</h3>
+                            <button class="sb-del-btn" title="关闭" onClick=${this.closePromptExpand}>✕</button>
+                        </div>
+                        <textarea class="sb-expand-textarea" value=${(this.editTarget?.data?.properties?.[this.expandState.nodeType])?.prompt || ''} onInput=${e => { if (this.editTarget?.data?.properties?.[this.expandState.nodeType]) { this.editTarget.data.properties[this.expandState.nodeType].prompt = e.target.value; this.markDirty(); } }} onKeyDown=${e => this.onPromptKeyDown(this.expandState.nodeId, this.expandState.nodeType, e)} rows="20" placeholder="输入提示词..."></textarea>
+                        ${this.getRefDescription(this.expandState.nodeId) ? html`<div style="font-size:11px;color:var(--text-secondary);padding:6px 12px;border-top:1px solid var(--border-default)">${this.getRefDescription(this.expandState.nodeId)}</div>` : null}
                     </div>
                 </div>
             ` : null}`;
