@@ -54,12 +54,17 @@ for i, arg in enumerate(sys.argv[1:]):
 CONFIG_PATH = os.path.join(PROJECT_ROOT, _config_arg) if _config_arg else os.path.join(PROJECT_ROOT, "config.json")
 
 
-def load_config():
-    if not os.path.exists(CONFIG_PATH):
-        print(f"[ERROR] Config file not found: {CONFIG_PATH}")
-        sys.exit(1)
-    print(f"[INFO] Loading config: {CONFIG_PATH}")
-    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+def load_config(config_path=None):
+    """Load config JSON from file. Raises FileNotFoundError if missing.
+
+    No sys.exit here — callers (main()) decide how to handle a missing config.
+    This keeps the module importable for tests.
+    """
+    path = config_path or CONFIG_PATH
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Config file not found: {path}")
+    print(f"[INFO] Loading config: {path}")
+    with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -69,13 +74,74 @@ def save_config(config):
         json.dump(config, f, ensure_ascii=False, indent=2)
 
 
-_config = load_config()
+def _initialize(config=None, config_path=None):
+    """Populate runtime globals from a config dict (tests) or file (runtime).
+
+    Idempotent. main() calls it at startup; tests call it with a ready-made
+    dict so the real config.json and network are never touched.
+    """
+    global _config, tos_client, TOS_AK, TOS_SK, TOS_REGION, TOS_BUCKET, ARK_API_KEY, AMK_API_KEY
+    _config = config if config is not None else load_config(config_path)
+    tos_conf = _config.get("volcano", {})
+    TOS_AK = tos_conf.get("tos_ak", "")
+    TOS_SK = tos_conf.get("tos_sk", "")
+    tos_client, TOS_REGION, TOS_BUCKET = _make_tos_client(tos_conf)
+    ARK_API_KEY = tos_conf.get("ark_api_key", "")
+    try:
+        ARK_API_KEY.encode("ascii")
+    except (UnicodeEncodeError, AttributeError):
+        print("[ERROR] ark_api_key contains non-ASCII characters. Please set a valid API key.")
+        ARK_API_KEY = ""
+    AMK_API_KEY = tos_conf.get("ai_mediakit_api", "")
+
+
+def resolve_under(root, relative):
+    """Join root + relative, verifying the result stays inside root.
+
+    Central defense against workspace path traversal. Returns the normalized
+    absolute path; raises ValueError if `relative` is absolute or escapes root.
+    Pure function — safe to unit test.
+    """
+    root = os.path.normpath(os.path.abspath(root))
+    if relative.lstrip().startswith("/"):
+        raise ValueError(f"Absolute path not allowed: {relative!r}")
+    cleaned = relative.replace("\\", "/").strip("/")
+    full = os.path.normpath(os.path.join(root, cleaned)) if cleaned else root
+    if full != root and not full.startswith(root + os.sep):
+        raise ValueError(f"Path escapes workspace root: {relative!r}")
+    return full
+
+
+# Characters invalid in filenames on Windows (the strictest target OS).
+_WIN_INVALID_FILENAME_CHARS = set('<>:"/\\|?*')
+
+
+def validate_filename(name):
+    """Return an error message if `name` has OS-illegal chars, else None.
+
+    Pure function — unit tested. Windows is the strictest target, so its rules
+    are applied everywhere (also rejects path separators on every OS).
+    """
+    if not name or not name.strip():
+        return "名称不能为空"
+    if name in (".", ".."):
+        return "名称不能为 . 或 .."
+    bad = set(name) & _WIN_INVALID_FILENAME_CHARS
+    if bad:
+        return f"名称不能包含特殊字符: {' '.join(sorted(bad))}"
+    if any(ord(c) < 32 for c in name):
+        return "名称不能包含控制字符"
+    return None
+
+
+# Runtime globals — populated by _initialize() (at startup or in tests).
+# Module-level placeholders keep import side-effect-free.
+_config = None
 _config_lock = threading.Lock()  # guards _config mutations across request threads
-_tos_conf = _config.get("volcano", {})
-TOS_AK = _tos_conf.get("tos_ak", "")
-TOS_SK = _tos_conf.get("tos_sk", "")
-TOS_REGION = _tos_conf.get("tos_region", "cn-shanghai")
-TOS_BUCKET = _tos_conf.get("tos_bucket", "")
+TOS_AK = ""
+TOS_SK = ""
+TOS_REGION = "cn-shanghai"
+TOS_BUCKET = ""
 
 
 def get_workspace_path():
@@ -123,16 +189,30 @@ def create_project(name):
         os.makedirs(os.path.join(proj_path, sub), exist_ok=True)
     return {"name": name, "path": proj_path}
 
-tos_client = None
-if TOS_AK and TOS_SK:
-    _tos_endpoint = f"tos-{TOS_REGION}.volces.com"
+tos_client = None  # populated by _initialize() via _make_tos_client()
+
+
+def _make_tos_client(tos_conf):
+    """Build a TOS client from a volcano config dict.
+
+    Returns (client, region, bucket); client is None when AK/SK are missing or
+    the connection fails. Extracted so tests can avoid touching the network.
+    """
+    region = tos_conf.get("tos_region", "cn-shanghai")
+    bucket = tos_conf.get("tos_bucket", "")
+    ak = tos_conf.get("tos_ak", "")
+    sk = tos_conf.get("tos_sk", "")
+    if not (ak and sk):
+        print("[WARN] TOS AK/SK not configured in config.json")
+        return None, region, bucket
+    endpoint = f"tos-{region}.volces.com"
     try:
-        tos_client = TosClientV2(ak=TOS_AK, sk=TOS_SK, endpoint=_tos_endpoint, region=TOS_REGION)
-        print(f"[OK] TOS connected: bucket={TOS_BUCKET}, region={TOS_REGION}")
+        client = TosClientV2(ak=ak, sk=sk, endpoint=endpoint, region=region)
+        print(f"[OK] TOS connected: bucket={bucket}, region={region}")
+        return client, region, bucket
     except Exception as e:
         print(f"[ERROR] TOS connection failed: {e}")
-else:
-    print("[WARN] TOS AK/SK not configured in config.json")
+        return None, region, bucket
 
 
 # ---- TOS helpers ----
@@ -222,16 +302,11 @@ def get_presigned_url(key):
 
 
 # ---- ARK Content Generation API helpers ----
-ARK_API_KEY = _config.get("volcano", {}).get("ark_api_key", "")
+ARK_API_KEY = ""  # populated by _initialize()
 ARK_BASE = "https://ark.cn-beijing.volces.com/api/v3"
-try:
-    ARK_API_KEY.encode("ascii")
-except UnicodeEncodeError:
-    print(f"[ERROR] ark_api_key contains non-ASCII characters. Please set a valid API key in {CONFIG_PATH}")
-    ARK_API_KEY = ""
 
 # ---- AMK (AI MediaKit) credentials ----
-AMK_API_KEY = _config.get("volcano", {}).get("ai_mediakit_api", "")
+AMK_API_KEY = ""  # populated by _initialize()
 
 
 def _ark_headers():
@@ -444,6 +519,52 @@ def _update_prompts_on_delete(full_path):
         print(f"[WARN] _update_prompts_on_delete failed: {e}")
 
 
+# ---- Route tables ----
+# Exact-match endpoints -> handler method name. do_GET passes the parsed query
+# string to each GET handler; do_POST calls no-arg handlers. Special cases
+# (workspace static files, "/", favicon, robots, ".." guard, generic static
+# serving) are handled inline in do_GET rather than via the table.
+GET_ROUTES = {
+    "/api/config": "_handle_config_get",
+    "/api/workspace/config": "_handle_workspace_config_get",
+    "/api/workspace/browse-dir": "_handle_workspace_browse_dir",
+    "/api/workspace/projects": "_handle_workspace_projects",
+    "/api/contributors": "_handle_contributors",
+    "/api/workspace/browse": "_handle_workspace_browse",
+    "/api/workspace/read": "_handle_workspace_read",
+    "/api/workspace/prompt": "_handle_workspace_get_prompt",
+    "/api/video/status": "_handle_video_status",
+    "/api/video/enhance/status": "_handle_video_enhance_status",
+    "/api/storyboard": "_handle_storyboard_get",
+}
+
+POST_ROUTES = {
+    "/api/config": "_handle_config_import",
+    "/api/tos/upload": "_handle_tos_upload",
+    "/api/tos/presign": "_handle_tos_presign",
+    "/api/workspace/config": "_handle_workspace_set_config",
+    "/api/workspace/projects": "_handle_create_project",
+    "/api/workspace/mkdir": "_handle_workspace_mkdir",
+    "/api/workspace/rename": "_handle_workspace_rename",
+    "/api/workspace/move": "_handle_workspace_move",
+    "/api/workspace/delete": "_handle_workspace_delete",
+    "/api/workspace/save": "_handle_workspace_save",
+    "/api/workspace/save-text": "_handle_workspace_save_text",
+    "/api/workspace/upload": "_handle_workspace_upload",
+    "/api/workspace/save-prompt": "_handle_workspace_save_prompt",
+    "/api/video/generate": "_handle_video_generate",
+    "/api/ark/file-upload": "_handle_ark_file_upload",
+    "/api/workspace/extract-frames": "_handle_extract_frames",
+    "/api/video/enhance": "_handle_video_enhance",
+    "/api/storyboard/save": "_handle_storyboard_save",
+    "/api/storyboard/sync-folders": "_handle_storyboard_sync_folders",
+    "/api/script/analyze": "_handle_script_analyze",
+    "/api/ark/chat": "_handle_ark_chat",
+    "/api/ark/image-gen": "_handle_ark_image_gen",
+    "/api/ark/responses": "_handle_ark_responses",
+}
+
+
 # ---- HTTP Handler ----
 class InspoVannaHandler(BaseHTTPRequestHandler):
     """Serves static files and handles TOS API requests."""
@@ -478,132 +599,24 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = unquote(parsed.path)
 
-        # API: return config from config.json (for auto-load on startup)
-        if path == "/api/config":
-            try:
-                safe = _safe_config()
-                self._send_json(safe)
-            except Exception as e:
-                self._send_error_json(f"Failed to read config: {str(e)}", 500)
-            return
-
-        # API: return workspace path
-        if path == "/api/workspace/config":
-            self._send_json({"path": get_workspace_path()})
-            return
-
-        # API: browse local directories for path picker
-        if path == "/api/workspace/browse-dir":
-            qs = parse_qs(parsed.query)
-            dir_path = qs.get("path", [""])[0]
-            try:
-                if not dir_path:
-                    # List drives on Windows
-                    if sys.platform == "win32":
-                        import string
-                        drives = []
-                        for letter in string.ascii_uppercase:
-                            drive = f"{letter}:\\"
-                            if os.path.exists(drive):
-                                drives.append({"name": drive, "path": drive})
-                        self._send_json({"dirs": drives, "current": ""})
-                    else:
-                        self._send_json({"dirs": [{"name": "/", "path": "/"}], "current": "/"})
-                else:
-                    # Security check
-                    norm = os.path.normpath(dir_path)
-                    entries = []
-                    try:
-                        for item in sorted(os.listdir(norm)):
-                            full = os.path.join(norm, item)
-                            if os.path.isdir(full):
-                                entries.append({"name": item, "path": full})
-                    except PermissionError:
-                        # No read permission for this directory — skip it silently
-                        pass
-                    parent = os.path.dirname(norm)
-                    self._send_json({
-                        "dirs": entries,
-                        "current": norm,
-                        "parent": parent if parent != norm else "",
-                    })
-            except Exception as e:
-                self._send_error_json(str(e), 500)
-            return
-
-        # API: list projects
-        if path == "/api/workspace/projects":
-            self._send_json({"projects": list_projects()})
-            return
-
-        # API: list contributor images
-        if path == "/api/contributors":
-            contrib_dir = os.path.join(BASE_DIR, "resource", "Contributor")
-            entries = []
-            if os.path.isdir(contrib_dir):
-                for f in sorted(os.listdir(contrib_dir)):
-                    if os.path.isfile(os.path.join(contrib_dir, f)):
-                        name, _ = os.path.splitext(f)
-                        entries.append({"name": name, "url": f"/resource/Contributor/{f}"})
-            self._send_json({"contributors": entries})
-            return
-
-        # API: browse workspace directory
-        if path == "/api/workspace/browse":
-            self._handle_workspace_browse(parsed.query)
-            return
-
-        # API: read text file from workspace
-        if path == "/api/workspace/read":
-            self._handle_workspace_read(parsed.query)
-            return
-
-        # API: get prompt for a workspace file
-        if path == "/api/workspace/prompt":
-            self._handle_workspace_get_prompt(parsed.query)
-            return
-
-        # API: poll video generation task status
-        if path == "/api/video/status":
-            self._handle_video_status(parsed.query)
-            return
-
-        # API: poll video enhancement task status
-        if path == "/api/video/enhance/status":
-            self._handle_video_enhance_status(parsed.query)
-            return
-
-        # API: read storyboard data
-        if path == "/api/storyboard":
-            self._handle_storyboard_get(parsed.query)
-            return
-
-        # Serve files from workspace directory
+        # Workspace static files (prefix match; supports Range requests)
         if path.startswith("/workspace/"):
             self._serve_workspace_file(path)
+            return
+
+        # Exact-match API routes (handler receives parsed query string)
+        handler_name = GET_ROUTES.get(path)
+        if handler_name:
+            getattr(self, handler_name)(parsed.query)
             return
 
         # Default route -> serve HTML
         if path == "/" or path == "":
             path = "/web/inspovanna.html"
 
-        # Serve favicon.ico from resource/
+        # Favicon
         if path == "/favicon.ico":
-            favicon_path = os.path.join(BASE_DIR, "resource", "favicon.ico")
-            if os.path.isfile(favicon_path):
-                with open(favicon_path, "rb") as f:
-                    data = f.read()
-                self.send_response(200)
-                self.send_header("Content-Type", "image/x-icon")
-                self.send_header("Content-Length", str(len(data)))
-                self.send_header("Cache-Control", "public, max-age=86400")
-                self.send_header("Connection", "close")
-                self.end_headers()
-                self.wfile.write(data)
-                return
-            # Fallback if favicon.ico hasn't been generated yet
-            self.send_response(204)
-            self.end_headers()
+            self._serve_favicon()
             return
 
         # Ignore common browser auto-requests
@@ -646,57 +659,94 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _handle_config_get(self, query):
+        """GET /api/config — return config with secrets masked."""
+        try:
+            self._send_json(_safe_config())
+        except Exception as e:
+            self._send_error_json(f"Failed to read config: {str(e)}", 500)
+
+    def _handle_workspace_config_get(self, query):
+        """GET /api/workspace/config — return workspace path."""
+        self._send_json({"path": get_workspace_path()})
+
+    def _handle_workspace_browse_dir(self, query):
+        """GET /api/workspace/browse-dir — browse local filesystem for path picker."""
+        qs = parse_qs(query)
+        dir_path = qs.get("path", [""])[0]
+        try:
+            if not dir_path:
+                # List drives on Windows
+                if sys.platform == "win32":
+                    import string
+                    drives = []
+                    for letter in string.ascii_uppercase:
+                        drive = f"{letter}:\\"
+                        if os.path.exists(drive):
+                            drives.append({"name": drive, "path": drive})
+                    self._send_json({"dirs": drives, "current": ""})
+                else:
+                    self._send_json({"dirs": [{"name": "/", "path": "/"}], "current": "/"})
+            else:
+                # Security check
+                norm = os.path.normpath(dir_path)
+                entries = []
+                try:
+                    for item in sorted(os.listdir(norm)):
+                        full = os.path.join(norm, item)
+                        if os.path.isdir(full):
+                            entries.append({"name": item, "path": full})
+                except PermissionError:
+                    # No read permission for this directory — skip it silently
+                    pass
+                parent = os.path.dirname(norm)
+                self._send_json({
+                    "dirs": entries,
+                    "current": norm,
+                    "parent": parent if parent != norm else "",
+                })
+        except Exception as e:
+            self._send_error_json(str(e), 500)
+
+    def _handle_workspace_projects(self, query):
+        """GET /api/workspace/projects — list projects."""
+        self._send_json({"projects": list_projects()})
+
+    def _handle_contributors(self, query):
+        """GET /api/contributors — list contributor images."""
+        contrib_dir = os.path.join(BASE_DIR, "resource", "Contributor")
+        entries = []
+        if os.path.isdir(contrib_dir):
+            for f in sorted(os.listdir(contrib_dir)):
+                if os.path.isfile(os.path.join(contrib_dir, f)):
+                    name, _ = os.path.splitext(f)
+                    entries.append({"name": name, "url": f"/resource/Contributor/{f}"})
+        self._send_json({"contributors": entries})
+
+    def _serve_favicon(self):
+        """Serve /favicon.ico from resource/, 204 if not yet generated."""
+        favicon_path = os.path.join(BASE_DIR, "resource", "favicon.ico")
+        if os.path.isfile(favicon_path):
+            with open(favicon_path, "rb") as f:
+                data = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/x-icon")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        # Fallback if favicon.ico hasn't been generated yet
+        self.send_response(204)
+        self.end_headers()
+
     # ---- API endpoints ----
     def do_POST(self):
-        parsed = urlparse(self.path)
-        path = parsed.path
-
-        if path == "/api/config":
-            self._handle_config_import()
-        elif path == "/api/tos/upload":
-            self._handle_tos_upload()
-        elif path == "/api/tos/presign":
-            self._handle_tos_presign()
-        elif path == "/api/workspace/config":
-            self._handle_workspace_set_config()
-        elif path == "/api/workspace/projects":
-            self._handle_create_project()
-        elif path == "/api/workspace/mkdir":
-            self._handle_workspace_mkdir()
-        elif path == "/api/workspace/rename":
-            self._handle_workspace_rename()
-        elif path == "/api/workspace/move":
-            self._handle_workspace_move()
-        elif path == "/api/workspace/delete":
-            self._handle_workspace_delete()
-        elif path == "/api/workspace/save":
-            self._handle_workspace_save()
-        elif path == "/api/workspace/save-text":
-            self._handle_workspace_save_text()
-        elif path == "/api/workspace/upload":
-            self._handle_workspace_upload()
-        elif path == "/api/workspace/save-prompt":
-            self._handle_workspace_save_prompt()
-        elif path == "/api/video/generate":
-            self._handle_video_generate()
-        elif path == "/api/ark/file-upload":
-            self._handle_ark_file_upload()
-        elif path == "/api/workspace/extract-frames":
-            self._handle_extract_frames()
-        elif path == "/api/video/enhance":
-            self._handle_video_enhance()
-        elif path == "/api/storyboard/save":
-            self._handle_storyboard_save()
-        elif path == "/api/storyboard/sync-folders":
-            self._handle_storyboard_sync_folders()
-        elif path == "/api/script/analyze":
-            self._handle_script_analyze()
-        elif path == "/api/ark/chat":
-            self._handle_ark_chat()
-        elif path == "/api/ark/image-gen":
-            self._handle_ark_image_gen()
-        elif path == "/api/ark/responses":
-            self._handle_ark_responses()
+        path = urlparse(self.path).path
+        handler_name = POST_ROUTES.get(path)
+        if handler_name:
+            getattr(self, handler_name)()
         else:
             self._send_error_json("Not found", 404)
 
@@ -972,8 +1022,18 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
 
         old_path = data.get("path", "").strip("/")
         new_name = data.get("newName", "").strip()
-        if not old_path or not new_name or ".." in old_path or ".." in new_name:
+        if not old_path:
+            self._send_error_json("Missing path", 400)
+            return
+        if ".." in old_path or ".." in new_name:
             self._send_error_json("Invalid parameters")
+            return
+        # Validate BEFORE basename(): on Windows, ntpath strips a leading "X:"
+        # drive prefix, so "a:b" would otherwise become "b" and slip past the
+        # illegal-char check.
+        verr = validate_filename(new_name)
+        if verr:
+            self._send_error_json(verr, 400)
             return
         new_name = os.path.basename(new_name)
 
@@ -997,6 +1057,8 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
             _update_prompts_on_rename(full_old, full_new)
             print(f"[OK] Renamed: {full_old} -> {full_new}")
             self._send_json({"path": full_new})
+        except OSError as e:
+            self._send_error_json(f"重命名失败：{e.strerror or e}", 400)
         except Exception as e:
             self._send_error_json(f"Rename failed: {str(e)}", 500)
 
@@ -2499,6 +2561,11 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
 
 def main():
+    try:
+        _initialize()
+    except FileNotFoundError as e:
+        print(f"[ERROR] {e}")
+        sys.exit(1)
     server = ThreadedHTTPServer(("127.0.0.1", PORT), InspoVannaHandler)
     print("========================================")
     print("  InspoVanna Server")
