@@ -699,6 +699,35 @@
             document.getElementById('modal-container').innerHTML = '';
         }
 
+        // Escape a string for safe insertion into an HTML text node.
+        // Always use this when interpolating user / AI / server-provided text
+        // into innerHTML — prevents XSS and broken rendering from <, >, & etc.
+        function escapeHtml(s) {
+            if (s === null || s === undefined) return '';
+            return String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        // Unified fetch wrapper: parses JSON and throws Error(message) on failure.
+        // Prefer this over raw fetch in new code — callers just try/catch and
+        // showToast(err.message). Returns parsed JSON, or text for non-JSON.
+        async function api(url, options = {}) {
+            const resp = await fetch(url, options);
+            const ct = resp.headers.get('content-type') || '';
+            if (!resp.ok) {
+                let detail = '';
+                if (ct.includes('application/json')) {
+                    try { detail = (await resp.clone().json()).error || ''; } catch (_) {}
+                }
+                throw new Error(detail || `请求失败 (${resp.status})`);
+            }
+            return ct.includes('application/json') ? resp.json() : resp.text();
+        }
+
         function updateApiStatus() {
             const statusEl = document.getElementById('api-status');
             const hasArkKey = state.arkApiKey;
@@ -1010,7 +1039,7 @@
                 } else {
                     titleEl.textContent = 'Contributor';
                     textEl.innerHTML = '<div class="flex flex-wrap gap-3 mt-1">' +
-                        list.map(c => `<div class="text-center"><img src="${c.url}" class="w-12 h-12 rounded-full object-cover mx-auto" onerror="this.style.display='none'"><p class="text-xs text-gray-500 mt-1 max-w-[5em] truncate">${c.name}</p></div>`).join('') +
+                        list.map(c => `<div class="text-center"><img src="${c.url}" class="w-12 h-12 rounded-full object-cover mx-auto" onerror="this.style.display='none'"><p class="text-xs text-gray-500 mt-1 max-w-[5em] truncate">${escapeHtml(c.name)}</p></div>`).join('') +
                         '</div>';
                 }
                 bubble.style.opacity = '1';
@@ -2481,7 +2510,7 @@
                                         ` : state.conversations.map(conv => `
                                             <div class="p-3 rounded-lg cursor-pointer transition-colors group ${conv.id === state.currentConversationId ? 'bg-purple-100 border border-purple-300' : 'hover:bg-gray-50'}" onclick="switchConversation('${conv.id}')">
                                                 <div class="flex items-center justify-between">
-                                                    <p class="text-sm font-medium text-gray-900 truncate flex-1">${conv.title}</p>
+                                                    <p class="text-sm font-medium text-gray-900 truncate flex-1">${escapeHtml(conv.title)}</p>
                                                     <button onclick="event.stopPropagation();deleteConversation('${conv.id}')" class="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 rounded text-red-500 flex-shrink-0">
                                                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                                                     </button>
@@ -2512,16 +2541,16 @@
                                                         <div class="flex flex-wrap gap-1 mb-2">
                                                             ${(msg.images || []).map(img => `<img src="${img.url || img.preview || img}" class="rounded max-h-16 object-cover">`).join('')}
                                                             ${(msg.videos || []).map(v => `<span class="inline-flex items-center px-2 py-1 rounded text-xs bg-purple-500/30">🎬 视频</span>`).join('')}
-                                                            ${(msg.documents || []).map(d => `<span class="inline-flex items-center px-2 py-1 rounded text-xs bg-purple-500/30">📄 ${d.name}</span>`).join('')}
+                                                            ${(msg.documents || []).map(d => `<span class="inline-flex items-center px-2 py-1 rounded text-xs bg-purple-500/30">📄 ${escapeHtml(d.name)}</span>`).join('')}
                                                         </div>
                                                     ` : ''}
                                                     ${msg.role === 'assistant' && msg.reasoning ? `
                                                         <details class="mb-2 text-xs ${msg.role === 'user' ? 'text-purple-200' : 'text-gray-400'}">
                                                             <summary class="cursor-pointer hover:text-gray-600 select-none">💭 思考过程</summary>
-                                                            <p class="mt-1 p-2 bg-gray-50 rounded text-gray-500 whitespace-pre-wrap">${msg.reasoning}</p>
+                                                            <p class="mt-1 p-2 bg-gray-50 rounded text-gray-500 whitespace-pre-wrap">${escapeHtml(msg.reasoning)}</p>
                                                         </details>
                                                     ` : ''}
-                                                    <p class="text-sm whitespace-pre-wrap">${msg.content || ''}</p>
+                                                    <p class="text-sm whitespace-pre-wrap">${escapeHtml(msg.content || '')}</p>
                                                     ${msg.role === 'assistant' ? `
                                                     <button onclick="copyText(this)" class="mt-2 px-2 py-1 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors" title="复制">
                                                         复制
@@ -2740,7 +2769,7 @@
                                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
                                                         </svg>
                                                     </div>
-                                                    <p class="font-medium text-gray-900 truncate">${folder.name}</p>
+                                                    <p class="font-medium text-gray-900 truncate">${escapeHtml(folder.name)}</p>
                                                 </div>`;
                                             }).join('')}
                                         </div>
@@ -2792,7 +2821,7 @@
                                                                 </svg>
                                                             `}
                                                         </div>
-                                                        <p class="font-medium text-gray-900 text-sm truncate">${file.name}</p>
+                                                        <p class="font-medium text-gray-900 text-sm truncate">${escapeHtml(file.name)}</p>
                                                         <p class="text-xs text-gray-500">${formatFileSize(file.size)}</p>
                                                     </div>
                                                 `;

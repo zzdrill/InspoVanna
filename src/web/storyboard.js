@@ -273,7 +273,7 @@ const StoryboardApp = {
         const treeVisible = ref(false);
         const treeExpandedIds = reactive(new Set());
         const assistantState = reactive({ show: false, input: '', messages: [], loading: false });
-        let dirty = false, saveTimer = null;
+        let dirty = false, saveTimer = null, destroyed = false;
 
         const currentEpisode = computed(() => nav.episodeId ? (sbData.episodes[nav.episodeId] || null) : null);
         const currentScene = computed(() => currentEpisode.value && nav.sceneId ? (currentEpisode.value.scenes?.[nav.sceneId] || null) : null);
@@ -767,6 +767,7 @@ const StoryboardApp = {
                 let pollCount = 0;
                 while (pollCount < 120) {
                     await new Promise(r => setTimeout(r, 5000));
+                    if (destroyed) return;  // component unmounted, stop polling
                     pollCount++;
                     const sr = await fetch('/api/video/status?task_id=' + taskId);
                     if (!sr.ok) continue;
@@ -2867,6 +2868,7 @@ const StoryboardApp = {
             document.addEventListener('click', onGlobalClick);
         });
         onBeforeUnmount(() => {
+            destroyed = true;  // signal in-flight generation polls to stop
             saveIfNeeded(); clearTimeout(saveTimer);
             document.removeEventListener('keydown', onKeyDown);
             document.removeEventListener('keyup', onKeyUp);
