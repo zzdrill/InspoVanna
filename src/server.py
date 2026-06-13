@@ -10,23 +10,24 @@ Provides:
   - POST /api/workspace/save    — download URL and save to workspace
 """
 
-import json
-import os
-import sys
+import hashlib
 import io
-import uuid
+import json
 import mimetypes
+import os
 import re
+import sys
 import threading
-import webbrowser
-import urllib.request
+import time
 import urllib.error
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import urllib.request
+import uuid
+import webbrowser
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
-from urllib.parse import urlparse, unquote, parse_qs
+from urllib.parse import parse_qs, unquote, urlparse
 
 try:
-    import tos
     from tos import TosClientV2
     from tos.enum import HttpMethodType
 except ImportError:
@@ -69,6 +70,7 @@ def save_config(config):
 
 
 _config = load_config()
+_config_lock = threading.Lock()  # guards _config mutations across request threads
 _tos_conf = _config.get("volcano", {})
 TOS_AK = _tos_conf.get("tos_ak", "")
 TOS_SK = _tos_conf.get("tos_sk", "")
@@ -102,8 +104,8 @@ def list_projects():
                     "path": full,
                     "hasSubfolders": all(os.path.isdir(os.path.join(full, s)) for s in PROJECT_SUBFOLDERS),
                 })
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[WARN] list_projects failed: {e}")
     return projects
 
 
@@ -134,10 +136,9 @@ else:
 
 
 # ---- TOS helpers ----
-import hashlib
-import time
 
 _tos_cache = {}  # {hash: {"key": str, "ct": str, "ts": float}}
+_tos_cache_lock = threading.Lock()  # guards _tos_cache across request threads
 
 
 def _cache_key(file_data):
@@ -155,13 +156,15 @@ def upload_to_tos_cached(file_data, filename, content_type):
     ck = _cache_key(file_data)
     now = time.time()
 
-    # Check cache
-    if ck in _tos_cache:
-        entry = _tos_cache[ck]
-        if now - entry["ts"] < TOS_CACHE_TTL:
-            url = get_presigned_url(entry["key"])
-            print(f"[CACHE] Reusing TOS key: {entry['key']}")
-            return url
+    # Check cache (lookup under lock; the actual upload happens outside the
+    # lock so concurrent uploads of different files are not serialized)
+    with _tos_cache_lock:
+        if ck in _tos_cache:
+            entry = _tos_cache[ck]
+            if now - entry["ts"] < TOS_CACHE_TTL:
+                url = get_presigned_url(entry["key"])
+                print(f"[CACHE] Reusing TOS key: {entry['key']}")
+                return url
 
     # Upload new
     unique_id = uuid.uuid4().hex[:12]
@@ -175,10 +178,18 @@ def upload_to_tos_cached(file_data, filename, content_type):
     )
 
     url = get_presigned_url(key)
-    _tos_cache[ck] = {"key": key, "ct": content_type, "ts": now}
+    with _tos_cache_lock:
+        _tos_cache[ck] = {"key": key, "ct": content_type, "ts": now}
     print(f"[OK] Uploaded ref to TOS: {key}")
     return url
-    """Upload file bytes to TOS and return (key, presigned_url)."""
+
+
+def upload_to_tos(file_data, filename, content_type):
+    """Upload file bytes to TOS and return (key, presigned_url).
+
+    Always uploads a fresh object (no dedup cache). Used by /api/tos/upload,
+    where the caller needs the TOS key for later re-presigning.
+    """
     if not tos_client:
         raise Exception("TOS not configured")
 
@@ -239,7 +250,8 @@ def _ark_headers():
 def _safe_config():
     """Return a copy of _config with sensitive fields replaced by has_xxx booleans."""
     import copy
-    safe = copy.deepcopy(_config)
+    with _config_lock:
+        safe = copy.deepcopy(_config)
     vol = safe.get("volcano", {})
     vol["ark_api_key"] = bool(vol.get("ark_api_key", ""))
     vol["tos_ak"] = bool(vol.get("tos_ak", ""))
@@ -276,7 +288,7 @@ def ark_video_create(model, content, ratio, duration, resolution="720p", waterma
         except (ConnectionError, OSError) as e:
             if attempt < max_retries - 1:
                 print(f"[WARN] ARK video create attempt {attempt + 1} failed: {e}, retrying...")
-                import time; time.sleep(2)
+                time.sleep(2)
             else:
                 raise
 
@@ -356,8 +368,8 @@ def _update_prompts_json(prompts_path, prompts):
                 json.dump(prompts, f, ensure_ascii=False, indent=2)
         else:
             os.remove(prompts_path)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[WARN] _update_prompts_json failed: {e}")
 
 
 def _update_prompts_on_rename(full_old, full_new):
@@ -374,8 +386,8 @@ def _update_prompts_on_rename(full_old, full_new):
         if old_name in prompts:
             prompts[new_name] = prompts.pop(old_name)
             _update_prompts_json(prompts_path, prompts)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[WARN] _update_prompts_on_rename failed: {e}")
 
 
 def _update_prompts_on_move(full_source, full_new):
@@ -396,8 +408,8 @@ def _update_prompts_on_move(full_source, full_new):
             if filename in prompts:
                 prompt_value = prompts.pop(filename)
                 _update_prompts_json(src_prompts_path, prompts)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[WARN] _update_prompts_on_move (source) failed: {e}")
 
     # Add to destination
     if prompt_value is not None:
@@ -407,8 +419,8 @@ def _update_prompts_on_move(full_source, full_new):
             try:
                 with open(dst_prompts_path, "r", encoding="utf-8") as f:
                     dst_prompts = json.load(f)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[WARN] _update_prompts_on_move (dest read) failed: {e}")
         dst_prompts[filename] = prompt_value
         _update_prompts_json(dst_prompts_path, dst_prompts)
 
@@ -428,8 +440,8 @@ def _update_prompts_on_delete(full_path):
         if filename in prompts:
             del prompts[filename]
             _update_prompts_json(prompts_path, prompts)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[WARN] _update_prompts_on_delete failed: {e}")
 
 
 # ---- HTTP Handler ----
@@ -475,11 +487,6 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
                 self._send_error_json(f"Failed to read config: {str(e)}", 500)
             return
 
-        # API: update config from frontend import
-        if path == "/api/config" and method == "POST":
-            self._handle_config_import()
-            return
-
         # API: return workspace path
         if path == "/api/workspace/config":
             self._send_json({"path": get_workspace_path()})
@@ -512,6 +519,7 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
                             if os.path.isdir(full):
                                 entries.append({"name": item, "path": full})
                     except PermissionError:
+                        # No read permission for this directory — skip it silently
                         pass
                     parent = os.path.dirname(norm)
                     self._send_json({
@@ -733,8 +741,8 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
                         "type": ct or "application/octet-stream",
                         "modified": os.path.getmtime(full),
                     })
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[WARN] workspace browse failed: {e}")
 
         folders.sort(key=lambda x: x.get("modified", 0), reverse=True)
         files.sort(key=lambda x: x.get("modified", 0), reverse=True)
@@ -743,7 +751,8 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
 
     def _handle_workspace_read(self, query_string):
         """Read and return a text file's content from workspace."""
-        from urllib.parse import parse_qs, unquote as unq
+        from urllib.parse import parse_qs
+        from urllib.parse import unquote as unq
         params = parse_qs(query_string)
         rel_path = unq(params.get("path", [""])[0].strip("/"))
 
@@ -842,16 +851,16 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
             self._send_error_json("Invalid config format: missing 'volcano' section")
             return
 
-        # Save to file
-        _config = new_config
-        save_config(_config)
+        # Save to file and reload runtime credentials atomically
+        with _config_lock:
+            _config = new_config
+            save_config(_config)
 
-        # Reload runtime credentials
-        _tos_conf = _config.get("volcano", {})
-        ARK_API_KEY = _tos_conf.get("ark_api_key", "")
-        TOS_AK = _tos_conf.get("tos_ak", "")
-        TOS_SK = _tos_conf.get("tos_sk", "")
-        AMK_API_KEY = _tos_conf.get("ai_mediakit_api", "")
+            _tos_conf = _config.get("volcano", {})
+            ARK_API_KEY = _tos_conf.get("ark_api_key", "")
+            TOS_AK = _tos_conf.get("tos_ak", "")
+            TOS_SK = _tos_conf.get("tos_sk", "")
+            AMK_API_KEY = _tos_conf.get("ai_mediakit_api", "")
 
         print(f"[OK] Config imported and saved to {CONFIG_PATH}")
         self._send_json({"status": "ok"})
@@ -887,9 +896,10 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
 
         # Update config.json
         global _config
-        _config.setdefault("workspace", {})["path"] = new_path
         try:
-            save_config(_config)
+            with _config_lock:
+                _config.setdefault("workspace", {})["path"] = new_path
+                save_config(_config)
             print(f"[OK] Workspace path updated: {new_path}")
             self._send_json({"path": new_path})
         except Exception as e:
@@ -1127,7 +1137,7 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
                 except Exception as dl_err:
                     if attempt < max_retries - 1:
                         print(f"[WARN] Download attempt {attempt + 1} failed: {dl_err}, retrying...")
-                        import time; time.sleep(1)
+                        time.sleep(1)
                     else:
                         raise dl_err
 
@@ -1287,7 +1297,8 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
 
     def _handle_workspace_get_prompt(self, query_string):
         """Return the prompt for a workspace file from per-folder prompts.json."""
-        from urllib.parse import parse_qs, unquote as unq
+        from urllib.parse import parse_qs
+        from urllib.parse import unquote as unq
         params = parse_qs(query_string)
         rel_path = unq(params.get("path", [""])[0].strip("/"))
 
@@ -1595,7 +1606,6 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
         file_data = None
         file_name = "upload"
         file_ct = "application/octet-stream"
-        preprocess_configs = None
 
         for part in parts:
             header_end = part.find(b"\r\n\r\n")
@@ -1615,11 +1625,6 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
                 for line in header.split("\r\n"):
                     if line.lower().startswith("content-type:"):
                         file_ct = line.split(":", 1)[1].strip()
-            elif b'name="preprocess_configs"' in part:
-                try:
-                    preprocess_configs = json.loads(value.decode("utf-8"))
-                except Exception:
-                    pass
 
         if not file_data:
             self._send_error_json("No file found in request", 400)
@@ -1629,7 +1634,7 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
         import uuid as _uuid
         ark_boundary = f"----ArkFormBoundary{_uuid.uuid4().hex[:16]}"
         form_parts = []
-        form_parts.append(f'Content-Disposition: form-data; name="purpose"\r\n\r\nuser_data')
+        form_parts.append('Content-Disposition: form-data; name="purpose"\r\n\r\nuser_data')
         form_parts.append(f'Content-Disposition: form-data; name="file"; filename="{file_name}"\r\nContent-Type: {file_ct}\r\n\r\n')
 
         form_body = b""
@@ -1671,8 +1676,8 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
                         elif status == "failed":
                             result["status"] = "failed"
                             break
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        print(f"[WARN] status poll request failed: {e}")
                     time.sleep(2)
 
             self._send_json(result)
@@ -2192,9 +2197,12 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
             lib_scenes = library_names.get("scenes") or []
             if lib_chars or lib_props or lib_scenes:
                 parts = []
-                if lib_chars: parts.append("角色: " + "、".join(lib_chars))
-                if lib_props: parts.append("道具: " + "、".join(lib_props))
-                if lib_scenes: parts.append("场景: " + "、".join(lib_scenes))
+                if lib_chars:
+                    parts.append("角色: " + "、".join(lib_chars))
+                if lib_props:
+                    parts.append("道具: " + "、".join(lib_props))
+                if lib_scenes:
+                    parts.append("场景: " + "、".join(lib_scenes))
                 lib_hint = (
                     "\n重要：以下是素材库中已有的角色/道具/场景名称（均已生成参考图）：\n"
                     + "\n".join(parts) + "\n"
@@ -2237,6 +2245,7 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
             try:
                 self._send_sse_event("error", {"error": str(e)})
             except Exception:
+                # Client likely already disconnected; nothing more we can send
                 pass
 
     def _send_sse_headers(self):
@@ -2319,7 +2328,7 @@ class InspoVannaHandler(BaseHTTPRequestHandler):
                 try:
                     return json.loads(arr_match.group())
                 except json.JSONDecodeError:
-                    pass
+                    pass  # fall through to the error event below
             self._send_sse_event("error", {"error": "LLM 返回的JSON格式无效，请重试"})
             return None
 
@@ -2491,14 +2500,14 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 
 def main():
     server = ThreadedHTTPServer(("127.0.0.1", PORT), InspoVannaHandler)
-    print(f"========================================")
-    print(f"  InspoVanna Server")
-    print(f"========================================")
+    print("========================================")
+    print("  InspoVanna Server")
+    print("========================================")
     print(f"  Local:     http://localhost:{PORT}")
     print(f"  TOS:       {TOS_BUCKET} ({TOS_REGION})")
     print(f"  Workspace: {get_workspace_path()}")
-    print(f"========================================")
-    print(f"")
+    print("========================================")
+    print("")
 
     def open_browser():
         webbrowser.open(f"http://localhost:{PORT}")
