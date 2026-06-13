@@ -5,9 +5,9 @@ placed in the Dock, or moved to /Applications.
 Called automatically by run.sh on first run.
 """
 import os
-import sys
 import plistlib
 import subprocess
+import sys
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(BASE_DIR)  # parent of src/

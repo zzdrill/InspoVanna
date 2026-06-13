@@ -5,8 +5,8 @@ no extra Python dependencies required.
 Called automatically by run.bat on first run.
 """
 import os
-import sys
 import subprocess
+import sys
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(BASE_DIR)  # parent of src/
