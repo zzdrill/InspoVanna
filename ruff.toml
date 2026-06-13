@@ -1,0 +1,30 @@
+# InspoVanna Ruff configuration (lint + format).
+#
+# Usage:
+#   ruff check .              # lint
+#   ruff check . --fix        # auto-fix safe issues
+#   ruff format .             # format
+#
+# Docs: https://docs.astral.sh/ruff/configuration/
+
+target-version = "py39"
+line-length = 120
+extend-exclude = [".venv", "resource", "InspoVanna.app"]
+
+[lint]
+# Start conservative: pyflakes (F), pycodestyle errors+warnings (E,W),
+# isort (I). More rule sets can be enabled incrementally.
+select = ["E", "F", "W", "I"]
+
+# E501 (line too long) is deferred: many existing lines still exceed the
+# limit and will be tightened over time. ruff format handles wrapping
+# where it safely can.
+ignore = ["E501"]
+
+[lint.per-file-ignores]
+# Bootstrap scripts may legitimately import after runtime checks.
+"src/setup_*.py" = ["E402"]
+
+[format]
+quote-style = "double"
+indent-style = "space"

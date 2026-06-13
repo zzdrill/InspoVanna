@@ -1,3 +1,7 @@
-tos
-opencv-python
-Pillow
+# InspoVanna runtime dependencies.
+# Versions pinned from a known-good environment for reproducibility.
+# Install with:  pip install -r requirements.txt
+
+tos==2.9.0
+opencv-python==4.13.0.92
+Pillow==12.2.0

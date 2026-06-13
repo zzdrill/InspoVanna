@@ -1,0 +1,8 @@
+# Development tools for InspoVanna.
+# Install with:  pip install -r requirements-dev.txt
+# (pulls in runtime deps from requirements.txt as well)
+
+-r requirements.txt
+
+# Lint + format. Pinned for reproducible dev environments.
+ruff==0.15.15
