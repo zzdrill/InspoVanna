@@ -6,3 +6,6 @@
 
 # Lint + format. Pinned for reproducible dev environments.
 ruff==0.15.15
+
+# Test runner.
+pytest==9.0.3

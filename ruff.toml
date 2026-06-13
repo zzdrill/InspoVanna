@@ -21,6 +21,9 @@ select = ["E", "F", "W", "I"]
 # where it safely can.
 ignore = ["E501"]
 
+[lint.isort]
+known-first-party = ["server"]
+
 [lint.per-file-ignores]
 # Bootstrap scripts may legitimately import after runtime checks.
 "src/setup_*.py" = ["E402"]
