@@ -1422,7 +1422,7 @@ const StoryboardApp = {
                 else if (libraryState.show) closeLibrary();
                 else if (screenwriterState.show) closeScreenwriter();
                 else if (screenplayLibState.show) closeScreenplayLib();
-                else if (scriptState.step !== 'idle') closeScriptImport();
+                else if (scriptState.show) closeScriptImport();
                 else return;
                 e.preventDefault();
                 return;
@@ -3355,7 +3355,7 @@ const StoryboardApp = {
                             style="width:100%;height:100%;">
                             <${Background} gap=${20} /><${MiniMap} />
                         </${VueFlow}>
-                        ${isShotLevel && this.currentScene && (this.currentScene.flow?.nodes || []).length === 0 ? html`
+                        ${isShotLevel && this.currentScene && Object.keys(this.currentScene.shots || {}).length === 0 ? html`
                             <div class="sb-canvas-empty">
                                 <div class="sb-canvas-empty-title">空的镜头画布</div>
                                 <div class="sb-canvas-empty-hint">从这里开始 — 添加第一个节点（或按数字键）</div>
