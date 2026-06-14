@@ -359,12 +359,15 @@ const StoryboardApp = {
         function openAssistant() { assistantState.show = true; assistantState.input = ''; }
         function closeAssistant() { assistantState.show = false; }
         function clearAssistant() { if (assistantState.messages.length && !confirm('确定清空聊天记录？')) return; assistantState.messages = []; }
+        let assistantController = null;
+        function stopAssistant() { if (assistantController) assistantController.abort(); }
         async function sendAssistantMessage() {
             const msg = assistantState.input.trim();
             if (!msg || assistantState.loading) return;
             assistantState.messages.push({ role: 'user', content: msg });
             assistantState.input = '';
             assistantState.loading = true;
+            assistantController = new AbortController();
             try {
                 const apiKey = window.state?.arkApiKey;
                 const model = window.state?.models?.text_default || 'doubao-seed-2-0-pro-260215';
@@ -373,15 +376,16 @@ const StoryboardApp = {
                 const apiMessages = [{ role: 'system', content: systemCtx }, ...assistantState.messages.slice(-20)];
                 const r = await fetch('/api/ark/chat', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ model, messages: apiMessages })
+                    body: JSON.stringify({ model, messages: apiMessages }),
+                    signal: assistantController.signal
                 });
                 const data = await r.json();
                 if (data.error) throw new Error(data.error);
                 const reply = data.choices?.[0]?.message?.content || data.output?.[0]?.content?.[0]?.text || '（无回复）';
                 assistantState.messages.push({ role: 'assistant', content: reply });
             } catch (e) {
-                assistantState.messages.push({ role: 'assistant', content: '❌ ' + e.message });
-            } finally { assistantState.loading = false; }
+                if (e.name !== 'AbortError') assistantState.messages.push({ role: 'assistant', content: '❌ ' + e.message });
+            } finally { assistantState.loading = false; assistantController = null; }
         }
 
         // CRUD
@@ -403,8 +407,13 @@ const StoryboardApp = {
             }
             markDirty();
         }
+        function _shotHasResult(sh) {
+            if (!sh || !sh.properties) return false;
+            const np = sh.properties[sh.nodeType];
+            return !!(np && (np.workspaceAsset || (np.history && np.history.length > 0)));
+        }
         function deleteEntity(entityId) {
-            if (nav.level === 'shot') { saveFlowFromVueFlow(); const sc = currentScene.value; if (!sc) return; delete sc.shots[entityId]; sc.flow.nodes = sc.flow.nodes.filter(n => n.id !== entityId); sc.flow.edges = sc.flow.edges.filter(e => e.source !== entityId && e.target !== entityId); vfRemoveNodes([entityId]); }
+            if (nav.level === 'shot') { saveFlowFromVueFlow(); const sc = currentScene.value; if (!sc) return; const _sh = sc.shots[entityId]; if (_sh && _shotHasResult(_sh) && !confirm('该节点已保存生成结果，删除后将丢失，确认删除？')) return; delete sc.shots[entityId]; sc.flow.nodes = sc.flow.nodes.filter(n => n.id !== entityId); sc.flow.edges = sc.flow.edges.filter(e => e.source !== entityId && e.target !== entityId); vfRemoveNodes([entityId]); }
             else if (nav.level === 'episode') { const ep = sbData.episodes[entityId]; if (ep) { const sceneCount = Object.keys(ep.scenes || {}).length; if (sceneCount > 0 && !confirm(`该剧集包含 ${sceneCount} 个场景，删除后不可恢复，确认删除？`)) return; } delete sbData.episodes[entityId]; sbData.flow.nodes = sbData.flow.nodes.filter(n => n.id !== entityId); sbData.flow.edges = sbData.flow.edges.filter(e => e.source !== entityId && e.target !== entityId); }
             else { const ep = currentEpisode.value; if (!ep) return; const sc = ep.scenes[entityId]; if (sc) { const shotCount = Object.keys(sc.shots || {}).length; if (shotCount > 0 && !confirm(`该场景包含 ${shotCount} 个镜头，删除后不可恢复，确认删除？`)) return; } delete ep.scenes[entityId]; ep.flow.nodes = ep.flow.nodes.filter(n => n.id !== entityId); ep.flow.edges = ep.flow.edges.filter(e => e.source !== entityId && e.target !== entityId); }
             if (editTarget.value && editTarget.value.id === entityId) editTarget.value = null;
@@ -1505,6 +1514,8 @@ const StoryboardApp = {
                     saveFlowFromVueFlow();
                     const sc = currentScene.value; if (!sc) return;
                     const ids = selected.map(n => n.id);
+                    const _withResult = ids.filter(id => _shotHasResult(sc.shots[id])).length;
+                    if (_withResult > 0 && !confirm(`选中的 ${ids.length} 个节点中有 ${_withResult} 个已保存生成结果，删除后将丢失，确认删除？`)) return;
                     for (const nodeId of ids) {
                         delete sc.shots[nodeId];
                         sc.flow.nodes = sc.flow.nodes.filter(n => n.id !== nodeId);
@@ -2962,7 +2973,7 @@ const StoryboardApp = {
             screenplayLibState, openScreenplayLib, closeScreenplayLib, saveScreenplayToLib, startContinueWriting, deleteScreenplay, loadScreenplayToImport, importScreenplayFile,
             mentionState, getConnectedRefs, getCombinedPrompt, getRefDescription, showMentionPopup, hideMentionPopup, insertMentionRef, onPromptKeyDown, expandState, openPromptExpand, closePromptExpand,
             globalSettings, openGlobalSettings, closeGlobalSettings, applyGlobalImageSettings, applyGlobalVideoSettings,
-            saveState,
+            saveState, stopAssistant,
         };
     },
 
@@ -3394,7 +3405,9 @@ const StoryboardApp = {
                         </div>
                         <div class="sb-assistant-input">
                             <input value=${this.assistantState.input} onInput=${e => { this.assistantState.input = e.target.value; }} onKeydown=${e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.sendAssistantMessage(); } }} placeholder="输入问题..." />
-                            <button title="发送消息" onClick=${this.sendAssistantMessage} disabled=${this.assistantState.loading || !this.assistantState.input.trim()}>发送</button>
+                            ${this.assistantState.loading
+                                ? html`<button title="停止生成" onClick=${this.stopAssistant} class="sb-tb-btn sb-assistant-stop">■ 停止</button>`
+                                : html`<button title="发送消息" onClick=${this.sendAssistantMessage} disabled=${!this.assistantState.input.trim()}>发送</button>`}
                         </div>
                     </div>
                 ` : null}

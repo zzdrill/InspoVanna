@@ -2675,6 +2675,7 @@
 .sb-save-indicator.saving { color: var(--text-muted, #94a3b8); }
 .sb-save-indicator.saved { color: #34d399; }
 .sb-save-indicator.error { color: var(--accent-red, #ef4444); }
+.sb-assistant-stop { color: var(--accent-red, #ef4444); font-weight: 600; }
 
 /* ---- Empty-shot-canvas onboarding overlay ---- */
 .sb-canvas { position: relative; }
