@@ -273,7 +273,7 @@ const StoryboardApp = {
         const treeVisible = ref(false);
         const treeExpandedIds = reactive(new Set());
         const assistantState = reactive({ show: false, input: '', messages: [], loading: false });
-        let dirty = false, saveTimer = null, destroyed = false;
+        let dirty = false, saveTimer = null, destroyed = false, saveInFlight = null;
 
         const currentEpisode = computed(() => nav.episodeId ? (sbData.episodes[nav.episodeId] || null) : null);
         const currentScene = computed(() => currentEpisode.value && nav.sceneId ? (currentEpisode.value.scenes?.[nav.sceneId] || null) : null);
@@ -588,6 +588,7 @@ const StoryboardApp = {
             setNodeGenerating(nodeId, true, '生成中...');
             try {
                 await ensureDir(nodeDir);
+                if (destroyed) return;  // component unmounted mid-generation
                 // Collect connected reference images
                 const sc = currentScene.value;
                 const refImages = [];
@@ -661,6 +662,7 @@ const StoryboardApp = {
                 let relPath;
                 if (saveR.ok) { const sd = await saveR.json(); relPath = sd.path || (nodeDir + '/' + filename); }
                 else { relPath = nodeDir + '/' + filename; }
+                if (destroyed) return;  // don't write reactive state after unmount
                 const sh = sc.shots[nodeId];
                 if (!sh) return;
                 const hist = sh.properties.image.history || [];
@@ -900,6 +902,7 @@ const StoryboardApp = {
                             }
                         }
                     }
+                    if (destroyed) return;
                     optimizeState.optimized = content || '(无优化结果)';
                 } else {
                     optimizeState.optimized = '(优化失败)';
@@ -957,6 +960,7 @@ const StoryboardApp = {
                             }
                         }
                     }
+                    if (destroyed) return;
                     if (content) {
                         sh.summary = content.trim().replace(/^["「」]|["「」]$/g, '');
                         syncNodeToFlow(nodeId); markDirty();
@@ -973,14 +977,38 @@ const StoryboardApp = {
             try { const r = await fetch('/api/storyboard?project=' + encodeURIComponent(name)); if (r.ok) { const d = await r.json(); if (d && d.episodes) { if (!d.characters) d.characters = {}; if (!d.props) d.props = {}; if (!d.scenes) d.scenes = {}; Object.assign(sbData, d); } else Object.assign(sbData, emptyStoryboard()); } } catch (e) { console.error(e); }
         }
         async function loadFromServer() { await loadProjects(); if (!projects.value.length) return; const ps = window.state || {}; const init = ps.currentProject || projects.value[0]?.name; if (init) await selectProject(init); }
-        async function saveIfNeeded() { if (!dirty || !projectName.value) return; saveFlowFromVueFlow(); dirty = false; try { await fetch('/api/storyboard/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: projectName.value, ...JSON.parse(JSON.stringify(sbData)) }) }); } catch (e) { console.error(e); } }
+        const saveState = ref('idle');  // idle | saving | saved | error — drives .sb-save-indicator
+        async function saveIfNeeded() {
+            if (!dirty || !projectName.value) return;
+            if (saveInFlight) await saveInFlight;   // serialize: no 2nd save mid-flight
+            if (!dirty) return;                      // the in-flight save may have covered it
+            saveFlowFromVueFlow();
+            dirty = false;
+            saveState.value = 'saving';
+            saveInFlight = (async () => {
+                try {
+                    await fetch('/api/storyboard/save', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ project: projectName.value, ...sbData })
+                    });
+                    saveState.value = 'saved';
+                } catch (e) {
+                    saveState.value = 'error';
+                    console.error('Auto-save failed:', e);
+                    window.showToast && window.showToast('自动保存失败: ' + (e.message || e), 'error');
+                } finally {
+                    saveInFlight = null;
+                }
+            })();
+            await saveInFlight;
+        }
         async function syncWorkspace() {
             if (!projectName.value) { window.showToast && window.showToast('请先选择项目', 'error'); return; }
             saveFlowFromVueFlow();
             try {
                 const r = await fetch('/api/storyboard/sync-folders', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ project: projectName.value, episodes: JSON.parse(JSON.stringify(sbData.episodes)) })
+                    body: JSON.stringify({ project: projectName.value, episodes: { ...sbData.episodes } })
                 });
                 if (!r.ok) { window.showToast && window.showToast('同步失败', 'error'); return; }
                 const res = await r.json();
@@ -1063,6 +1091,7 @@ const StoryboardApp = {
                     body: JSON.stringify({ videoPath: asset, outputDir })
                 });
                 const data = await resp.json();
+                if (destroyed) return;
                 if (data.error) throw new Error(data.error);
                 if (!data.first && !data.last) throw new Error('未能提取到帧图片，请确认视频文件有效');
                 const bx = vfNode.position.x, by = vfNode.position.y;
@@ -1385,10 +1414,41 @@ const StoryboardApp = {
         }
 
         function onKeyDown(e) {
+            // Escape: close the topmost open overlay (works even from within inputs)
+            if (e.key === 'Escape') {
+                if (previewState.show) closePreview();
+                else if (globalSettings.show) closeGlobalSettings();
+                else if (optimizeState.show) optimizeState.show = false;
+                else if (libraryState.show) closeLibrary();
+                else if (screenwriterState.show) closeScreenwriter();
+                else if (screenplayLibState.show) closeScreenplayLib();
+                else if (scriptState.step !== 'idle') closeScriptImport();
+                else return;
+                e.preventDefault();
+                return;
+            }
             // Don't handle keys when typing in input/textarea
             const tag = e.target?.tagName?.toLowerCase();
             if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+
+            // Ctrl+S: manual save (works at any level)
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                saveIfNeeded();
+                return;
+            }
+
             if (nav.level !== 'shot') return;
+
+            // F: fit view to all nodes
+            if (e.key === 'f' || e.key === 'F') {
+                e.preventDefault();
+                requestAnimationFrame(() => vfFitView({ padding: 0.2 }));
+                return;
+            }
+            // 1-4: quick-add shot nodes (text/image/video/audio)
+            const _quickAdd = { '1': 'text', '2': 'image', '3': 'video', '4': 'audio' };
+            if (_quickAdd[e.key]) { e.preventDefault(); addEntity(_quickAdd[e.key]); return; }
 
             // Ctrl+C: copy selected nodes
             if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
@@ -1581,6 +1641,7 @@ const StoryboardApp = {
                 if (data.error) throw new Error(data.error.message || 'API错误');
                 const imgUrl = data.data?.[0]?.url; if (!imgUrl) throw new Error('无图像URL');
                 const ts = new Date().toISOString().replace(/[:.]/g, '-');
+                if (destroyed) return;
                 const filename = (_libPrefix[type] || 'scene_') + ts + '.png';
                 const saveR = await fetch('/api/workspace/save', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2583,6 +2644,7 @@ const StoryboardApp = {
                         if (imgData.error) throw new Error(imgData.error.message);
                         const imgUrl = imgData.data?.[0]?.url; if (!imgUrl) throw new Error('无图像URL');
                         const ts = new Date().toISOString().replace(/[:.]/g, '-') + done;
+                        if (destroyed) break;
                         const filename = (_libPrefix[item._type] || 'scene_') + ts + '.png';
                         const saveR = await fetch('/api/workspace/save', {
                             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2869,6 +2931,7 @@ const StoryboardApp = {
         });
         onBeforeUnmount(() => {
             destroyed = true;  // signal in-flight generation polls to stop
+            if (screenwriterState.autoSaveTimer) { clearTimeout(screenwriterState.autoSaveTimer); screenwriterState.autoSaveTimer = null; }
             saveIfNeeded(); clearTimeout(saveTimer);
             document.removeEventListener('keydown', onKeyDown);
             document.removeEventListener('keyup', onKeyUp);
@@ -2899,6 +2962,7 @@ const StoryboardApp = {
             screenplayLibState, openScreenplayLib, closeScreenplayLib, saveScreenplayToLib, startContinueWriting, deleteScreenplay, loadScreenplayToImport, importScreenplayFile,
             mentionState, getConnectedRefs, getCombinedPrompt, getRefDescription, showMentionPopup, hideMentionPopup, insertMentionRef, onPromptKeyDown, expandState, openPromptExpand, closePromptExpand,
             globalSettings, openGlobalSettings, closeGlobalSettings, applyGlobalImageSettings, applyGlobalVideoSettings,
+            saveState,
         };
     },
 
@@ -2917,13 +2981,13 @@ const StoryboardApp = {
             if (this.nav.level === 'episode') tbBtns.push(html`<button onClick=${() => this.addEntity()} class="sb-tb-btn" title="新建剧集">+ 剧集</button>`);
             if (this.nav.level === 'scene') tbBtns.push(html`<button onClick=${() => this.addEntity()} class="sb-tb-btn" title="新建场景">+ 场景</button>`);
             if (isShotLevel) {
-                tbBtns.push(html`<button onClick=${() => this.addEntity('text')} class="sb-tb-btn" title="添加提示词节点">${ICON_TEXT} 提示词</button>`);
-                tbBtns.push(html`<button onClick=${() => this.addEntity('image')} class="sb-tb-btn" title="添加图像生成节点">${ICON_IMAGE} 图像</button>`);
-                tbBtns.push(html`<button onClick=${() => this.addEntity('video')} class="sb-tb-btn" title="添加视频生成节点">${ICON_VIDEO} 视频</button>`);
-                tbBtns.push(html`<button onClick=${() => this.addEntity('audio')} class="sb-tb-btn" title="添加音频节点">${ICON_AUDIO} 音频</button>`);
+                tbBtns.push(html`<button onClick=${() => this.addEntity('text')} class="sb-tb-btn" title="添加提示词节点 (1)">${ICON_TEXT} 提示词</button>`);
+                tbBtns.push(html`<button onClick=${() => this.addEntity('image')} class="sb-tb-btn" title="添加图像生成节点 (2)">${ICON_IMAGE} 图像</button>`);
+                tbBtns.push(html`<button onClick=${() => this.addEntity('video')} class="sb-tb-btn" title="添加视频生成节点 (3)">${ICON_VIDEO} 视频</button>`);
+                tbBtns.push(html`<button onClick=${() => this.addEntity('audio')} class="sb-tb-btn" title="添加音频节点 (4)">${ICON_AUDIO} 音频</button>`);
                 tbBtns.push(html`<span class="sb-tb-sep"></span>`);
                 tbBtns.push(html`<button onClick=${this.autoLayout} class="sb-tb-btn" title="自动排列节点布局">\u{1F4CA} 排列</button>`);
-                tbBtns.push(html`<button onClick=${this.fitView} class="sb-tb-btn" title="适配视图显示所有节点">⌚ 适配</button>`);
+                tbBtns.push(html`<button onClick=${this.fitView} class="sb-tb-btn" title="适配视图显示所有节点 (F)">⌚ 适配</button>`);
             }
             tbBtns.push(html`<span class="sb-tb-sep"></span>`);
             if (this.nav.level === 'episode') {
@@ -3280,7 +3344,7 @@ const StoryboardApp = {
 
         return html`
             <div class="sb-root">
-                <div class="sb-breadcrumb">${crumbs}</div>
+                <div class="sb-breadcrumb">${crumbs}${(this.saveState && this.saveState !== 'idle') ? html`<span class="sb-save-indicator ${this.saveState}">${this.saveState === 'saving' ? '保存中…' : this.saveState === 'saved' ? '✓ 已保存' : '⚠ 保存失败'}</span>` : null}</div>
                 <div class="sb-toolbar">${tbBtns}</div>
                 <div class="sb-main">
                     <div class="sb-canvas" style=${isShotLevel ? '' : 'display:none'}>
@@ -3291,6 +3355,19 @@ const StoryboardApp = {
                             style="width:100%;height:100%;">
                             <${Background} gap=${20} /><${MiniMap} />
                         </${VueFlow}>
+                        ${isShotLevel && this.currentScene && (this.currentScene.flow?.nodes || []).length === 0 ? html`
+                            <div class="sb-canvas-empty">
+                                <div class="sb-canvas-empty-title">空的镜头画布</div>
+                                <div class="sb-canvas-empty-hint">从这里开始 — 添加第一个节点（或按数字键）</div>
+                                <div class="sb-canvas-empty-actions">
+                                    <button class="sb-tb-btn" onClick=${() => this.addEntity('text')}>${ICON_TEXT} 提示词 <kbd>1</kbd></button>
+                                    <button class="sb-tb-btn" onClick=${() => this.addEntity('image')}>${ICON_IMAGE} 图像 <kbd>2</kbd></button>
+                                    <button class="sb-tb-btn" onClick=${() => this.addEntity('video')}>${ICON_VIDEO} 视频 <kbd>3</kbd></button>
+                                    <button class="sb-tb-btn" onClick=${() => this.addEntity('audio')}>${ICON_AUDIO} 音频 <kbd>4</kbd></button>
+                                </div>
+                                <div class="sb-canvas-empty-tip">把「提示词」节点的输出口拖到「图像/视频」节点的「提示词」入口，即可用它驱动生成。</div>
+                            </div>
+                        ` : null}
                     </div>
                     ${!isShotLevel ? html`<div class="sb-card-grid">${cards}</div>` : null}
                     ${editPanel}

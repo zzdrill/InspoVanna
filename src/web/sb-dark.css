@@ -2652,3 +2652,53 @@
     font-size: 12px;
     line-height: 1.6;
 }
+
+/* ---- Accessibility: restore keyboard focus visibility ----
+   14 `outline: none` rules above remove the default focus ring for mouse
+   aesthetics. This re-adds a visible ring for keyboard users via :focus-visible
+   (placed last so it wins equal-specificity ties; only triggers on keyboard focus,
+   so mouse users keep the clean look). */
+.sb-root :focus-visible {
+    outline: 2px solid var(--accent-indigo, #7c3aed);
+    outline-offset: 2px;
+}
+
+/* ---- Save status indicator (in breadcrumb) ---- */
+.sb-save-indicator {
+    margin-left: auto;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    white-space: nowrap;
+    align-self: center;
+}
+.sb-save-indicator.saving { color: var(--text-muted, #94a3b8); }
+.sb-save-indicator.saved { color: #34d399; }
+.sb-save-indicator.error { color: var(--accent-red, #ef4444); }
+
+/* ---- Empty-shot-canvas onboarding overlay ---- */
+.sb-canvas { position: relative; }
+.sb-canvas-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 8px;
+    pointer-events: none;
+}
+.sb-canvas-empty > * { pointer-events: auto; }
+.sb-canvas-empty-title { font-size: 16px; font-weight: 600; color: var(--text-primary, #e5e7eb); }
+.sb-canvas-empty-hint { font-size: 13px; color: var(--text-muted, #94a3b8); }
+.sb-canvas-empty-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; justify-content: center; }
+.sb-canvas-empty-actions kbd {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    margin-left: 4px;
+}
+.sb-canvas-empty-tip { font-size: 12px; color: var(--text-muted, #94a3b8); max-width: 420px; margin-top: 8px; line-height: 1.5; }
